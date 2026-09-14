@@ -276,18 +276,9 @@ body {
   animation: pathdle-feedback-in 0.3s ease;
 }
 
+/* Path hops: overflow is handled by middle-ellipsis collapse in ChartRail (no scroll). */
 .pathdle-chart-rail {
-  scrollbar-width: thin;
-  scrollbar-color: oklch(0.7 0.08 78 / 0.4) transparent;
-}
-
-.pathdle-chart-rail::-webkit-scrollbar {
-  height: 4px;
-}
-
-.pathdle-chart-rail::-webkit-scrollbar-thumb {
-  background: oklch(0.7 0.08 78 / 0.4);
-  border-radius: 99px;
+  max-width: 100%;
 }
 
 .pathdle-camera-btn {

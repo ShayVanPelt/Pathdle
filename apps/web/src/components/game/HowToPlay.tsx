@@ -18,11 +18,11 @@ const STEPS = [
   },
   {
     title: `Reveal hints (+${SCORING.revealOutbound})`,
-    body: "Tap a star for its chart note, then reveal outbound hints. Dashed teal lines are hints only — drag to confirm.",
+    body: "Tap a star for its chart note, then reveal outbound hints. Dashed teal lines are hints only; drag to confirm.",
   },
   {
     title: "Explore the sky",
-    body: "Drag empty space to pan. Scroll, pinch, or use + / − to zoom. Recenter fits your path in view.",
+    body: "Drag empty space to pan. Scroll, pinch, or use + / - to zoom. Recenter fits your path in view.",
   },
 ] as const;
 
@@ -47,7 +47,7 @@ export function HowToPlay({ open, onClose }: Props) {
           Pathdle
         </h2>
         <p className="mt-3 text-base leading-relaxed text-[var(--ink-muted)]">
-          A hidden constellation of Wikipedia articles. Points are a cost — guess carefully.
+          A hidden constellation of Wikipedia articles. Points are a cost; guess carefully.
         </p>
 
         <ol className="mt-7 space-y-5">
@@ -71,7 +71,7 @@ export function HowToPlay({ open, onClose }: Props) {
           onClick={onClose}
           className="mt-8 w-full rounded-xl bg-[var(--accent)] px-4 py-3.5 text-base font-semibold text-[oklch(0.12_0.03_80)] transition hover:brightness-110"
         >
-          Got it — start charting
+          Got it. Start charting
         </button>
       </div>
     </div>

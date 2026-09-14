@@ -28,7 +28,7 @@ Points are a cost (lower is better):
 
 - Successful link drag: **+100** (permanent; branching from any charted node is allowed)
 - Failed link drag: **+100** (miss animation, no line)
-- Reveal outbound from a node (click → chart note): **+75** (dashed hints only — not permanent path links; confirming a link does not remove the hint record)
+- Reveal outbound from a node (click → chart note): **+75** (dashed hints only — not permanent path links; confirming a link from that node clears its remaining outbound hints)
 - No link removal / undo — score only increases for new actions
 
 See `docs/game-rules.md`, `Pathdle.Application.ScoringRules`, and web `SCORING`.

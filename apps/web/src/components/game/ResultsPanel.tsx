@@ -38,31 +38,66 @@ function PathRow({
   );
 }
 
+function buildShareText(result: CompleteResponse, hintCount: number): string {
+  const efficiency = Math.round(result.efficiency * 100);
+  const date = new Date().toISOString().slice(0, 10);
+  const optimal = result.optimalLength;
+  const links = result.playerConnectionCount;
+  const extra = Math.max(0, links - optimal);
+
+  // Wordle-style grid: gold = on-pace links, amber = extras, teal = reveals
+  const linkRow =
+    "🟨".repeat(Math.min(links, optimal)) + (extra > 0 ? "🟧".repeat(extra) : "");
+  const revealRow = hintCount > 0 ? `\n${"🟦".repeat(hintCount)}` : "";
+
+  const site =
+    typeof window !== "undefined" ? window.location.origin.replace(/\/$/, "") : "pathdle";
+
+  // Stats + emoji grid only — no article titles (avoids spoilers).
+  return [
+    `Pathdle ${date}`,
+    `${result.score} pts | ${links}/${optimal} | ${efficiency}%`,
+    ``,
+    `${linkRow}${revealRow}`,
+    ``,
+    site,
+  ].join("\n");
+}
+
+async function copyText(text: string): Promise<boolean> {
+  try {
+    await navigator.clipboard.writeText(text);
+    return true;
+  } catch {
+    try {
+      const area = document.createElement("textarea");
+      area.value = text;
+      area.setAttribute("readonly", "");
+      area.style.position = "fixed";
+      area.style.left = "-9999px";
+      document.body.appendChild(area);
+      area.select();
+      const ok = document.execCommand("copy");
+      document.body.removeChild(area);
+      return ok;
+    } catch {
+      return false;
+    }
+  }
+}
+
 export function ResultsPanel({ result, onClose }: Props) {
   const [copied, setCopied] = useState(false);
   const linkCost = result.playerConnectionCount * SCORING.successfulLink;
   const hintCost = Math.max(0, result.score - linkCost);
   const hintCount = Math.round(hintCost / SCORING.revealOutbound);
-  const shareText = `Pathdle · score ${result.score} · ${result.playerConnectionCount} links · ${Math.round(result.efficiency * 100)}% efficiency\n${result.playerPath.map(articleTitle).join(" → ")}`;
 
   const share = async () => {
-    try {
-      if (navigator.share) {
-        await navigator.share({ title: "Pathdle", text: shareText });
-        return;
-      }
-      await navigator.clipboard.writeText(shareText);
-      setCopied(true);
-      window.setTimeout(() => setCopied(false), 1800);
-    } catch {
-      try {
-        await navigator.clipboard.writeText(shareText);
-        setCopied(true);
-        window.setTimeout(() => setCopied(false), 1800);
-      } catch {
-        /* ignore */
-      }
-    }
+    const shareText = buildShareText(result, hintCount);
+    const ok = await copyText(shareText);
+    if (!ok) return;
+    setCopied(true);
+    window.setTimeout(() => setCopied(false), 1800);
   };
 
   return (

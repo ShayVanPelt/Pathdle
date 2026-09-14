@@ -22,7 +22,7 @@ Next.js App Router, TypeScript, React, Tailwind CSS. Deploy: Vercel.
 - API layout positions are a **direction hint only**. Display spreads nodes into a circular ring with pill collision avoidance (`spreadDisplayPositions` in `src/lib/graph/layout.ts`) — do not invent a second topology layout from edges.
 - Labels live **inside** node pills. Hover/selection highlights the pill only — never spawn external label chips.
 - Pan, zoom (`+`/`−`/wheel/pinch), recenter, click nodes, drag to attempt connections.
-- **Click** a node → chart note (reveal outbound hints +75). Hints are dashed teal and are not path links until the player drags to confirm.
+- **Click** a node → chart note (reveal outbound hints +75). Hints are dashed teal and are not path links until the player drags to confirm. Confirming a link from that node clears its remaining outbound hints.
 - **Drag** node → node → test/confirm link (+100). Branching from any charted node is allowed; confirmed links are never removed.
 - Score only grows for new attempts/reveals — no undo. Animate score changes in the HUD.
 - Reaching TARGET auto-opens results (breakdown + share); player may keep exploring the board.

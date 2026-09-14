@@ -130,8 +130,9 @@ public sealed class GameService(
         game.DiscoveredEdges.Add(new PuzzleEdge(request.FromId, request.ToId));
         game.ConnectionCount += 1;
         game.Score += ScoringRules.SuccessfulLinkCost;
-        // Hints stay as hints under confirmed links (UI layers amber on top). No removals —
-        // branching from the same node / earlier nodes is allowed; score only grows for new links.
+        // Clear outbound hint lines from the node you just linked from (confirmed path replaces the blue fan).
+        game.HintEdges.RemoveAll(h =>
+            string.Equals(h.From, request.FromId, StringComparison.Ordinal));
         AppendVisit(game, request.ToId);
 
         await gameRepository.UpdateAsync(game, cancellationToken);

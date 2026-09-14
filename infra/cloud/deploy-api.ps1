@@ -5,9 +5,12 @@
 #   $env:GCP_PROJECT = "your-project"
 #   $env:GCP_REGION = "us-central1"
 #   $env:AR_REPO = "pathdle"
-#   $env:CORS_ORIGINS = "https://your-app.vercel.app,http://localhost:3000"
+#   $env:CORS_ORIGINS = "https://www.example.com,https://example.com,http://localhost:3000"
 #   $env:PG_SECRET = "pathdle-pg"
 #   .\infra\cloud\deploy-api.ps1
+#
+# CORS_ORIGINS is comma-separated frontend origins. Deploy maps them to
+# Cors__AllowedOrigins__0, __1, ... (ASP.NET array binding).
 
 $ErrorActionPreference = "Stop"
 
@@ -32,6 +35,17 @@ Set-Location $Root
 $Sha = (git rev-parse --short HEAD).Trim()
 $Image = "$Region-docker.pkg.dev/$Project/$Repo/$Service"
 
+# Build Cors__AllowedOrigins__N=... segments; use | as gcloud env separator (^|^).
+$origins = @($Cors.Split(",") | ForEach-Object { $_.Trim() } | Where-Object { $_ })
+if ($origins.Count -eq 0) {
+  throw "CORS_ORIGINS must list at least one origin"
+}
+$corsParts = for ($i = 0; $i -lt $origins.Count; $i++) {
+  "Cors__AllowedOrigins__$i=$($origins[$i])"
+}
+$envVars = (@("Pathdle__Storage=Postgres", "ASPNETCORE_ENVIRONMENT=Production") + $corsParts) -join "|"
+$setEnvVars = "^|^$envVars"
+
 Write-Host "==> Building ${Image}:latest"
 gcloud builds submit `
   --project $Project `
@@ -50,7 +64,7 @@ gcloud run deploy $Service `
   --cpu 1 `
   --min-instances 0 `
   --max-instances 5 `
-  --set-env-vars "Pathdle__Storage=Postgres,ASPNETCORE_ENVIRONMENT=Production,Cors__AllowedOrigins=$Cors" `
+  --set-env-vars $setEnvVars `
   --set-secrets "ConnectionStrings__Postgres=${PgSecret}:latest"
 
 $Url = gcloud run services describe $Service `

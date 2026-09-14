@@ -15,13 +15,13 @@ Reach **TARGET** from **START** by discovering directed links. Compare your path
 |--------|------|--------|
 | Drag A → B when a directed board edge exists | **+100** | Permanent amber path link (kept forever; branching allowed) |
 | Drag A → B when no edge exists | **+100** | No line; miss animation (+100 label) |
-| Click article → **Reveal hints** | **+75** | Dashed teal hints only. Still must drag to confirm. Hints are not removed when you confirm. |
+| Click article → **Reveal hints** | **+75** | Dashed teal hints only. Still must drag to confirm. Confirming a link from that article clears its remaining hint lines. |
 
 Already-confirmed links and already-revealed articles do not charge again.
 
 ## Hints vs path links
 
-- **Hint edges** (`hintEdges`): visual only (dashed teal). Not on your path until you **drag to confirm**.
+- **Hint edges** (`hintEdges`): visual only (dashed teal). Not on your path until you **drag to confirm**. After a successful confirm from an article, that article's outbound hint lines are cleared.
 - **Discovered edges** (`discoveredEdges`): permanent links from successful drags. Never removed.
 - You may draw **multiple links from the same node**, including from nodes earlier in your chart (branching).
 - Score only increases when you make a **new** drag attempt (success or fail) or a new reveal — there is no undo/remove.

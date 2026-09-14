@@ -15,7 +15,7 @@ const ui = Source_Sans_3({
 
 export const metadata: Metadata = {
   title: "Pathdle",
-  description: "Daily Wikipedia graph puzzle — chart a path through the hidden constellation.",
+  description: "Daily Wikipedia graph puzzle. Chart a path through the hidden constellation.",
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {

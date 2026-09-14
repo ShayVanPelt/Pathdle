@@ -30,7 +30,7 @@ export type GameState = {
   targetArticleId: string;
   nodes: PuzzleNode[];
   discoveredEdges: Edge[];
-  /** Visual-only reveal hints — not part of the path until confirmed by drag. */
+  /** Visual-only reveal hints; not part of the path until confirmed by drag. */
   hintEdges: Edge[];
   playerPath: string[];
   revealedArticleIds: string[];

@@ -52,7 +52,7 @@ export function ChartNote({
       </div>
 
       <p className="mt-3 text-sm leading-relaxed text-[var(--ink-muted)]">
-        Drag to another star to test a link. Reveals draw dashed hint lines — they are not your path until you confirm.
+        Drag to another star to test a link. Reveals draw dashed hint lines; they are not your path until you confirm.
       </p>
 
       {neighbors.length > 0 && (
