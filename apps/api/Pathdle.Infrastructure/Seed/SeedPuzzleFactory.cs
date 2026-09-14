@@ -81,6 +81,7 @@ public static class SeedPuzzleFactory
             OptimalLength = optimalPath.Length - 1,
             GeneratorSeed = "seed-mvp-v1",
             CorpusVersion = "hand-authored-mvp",
+            Difficulty = new { note = "hand-authored seed" },
             PublishedAt = DateTimeOffset.UtcNow,
             CreatedAt = DateTimeOffset.UtcNow
         };

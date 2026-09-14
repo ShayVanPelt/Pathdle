@@ -16,7 +16,7 @@ Read the package-specific `AGENTS.md` when working in that app.
 
 ## Non-negotiables
 
-1. Gameplay never queries Neo4j — only Postgres (or in-memory seed for local MVP).
+1. Gameplay never queries Neo4j — only Postgres in local dev; production JSON defaults to in-memory until wired.
 2. Clients never receive the full edge set or optimal path until game complete.
 3. Published daily puzzles are immutable (insert, never overwrite).
 4. Anonymous-first: `X-Player-Key` header; optional auth later.

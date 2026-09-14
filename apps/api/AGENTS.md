@@ -12,7 +12,7 @@ ASP.NET Core minimal APIs, C#. Projects: `Pathdle.Api`, `Pathdle.Application`, `
 - Scoring: see `ScoringRules` (+100 link attempt, +75 reveal hint). Lower score is better.
 - Require `X-Player-Key` for game mutations and reads of player state.
 - Puzzle day = UTC `DateOnly`.
-- Local MVP storage may be in-memory seed; production target is Postgres/Supabase.
+- **Local dev** uses Postgres (`Pathdle:Storage=Postgres` in `appsettings.Development.json` + Docker). Production default JSON is `InMemory` until Cloud Run gets `ConnectionStrings__Postgres`.
 - Do not call Neo4j from request handlers.
 
 ## Endpoints
@@ -35,8 +35,8 @@ ASP.NET Core minimal APIs, C#. Projects: `Pathdle.Api`, `Pathdle.Application`, `
 cp .env.example .env
 # edit .env → ConnectionStrings__Postgres password
 
-# 2) Optional local Postgres
-docker compose up -d
+# 2) Local Postgres (recommended for dev)
+docker compose up -d postgres
 
 # 3) API
 dotnet run --project apps/api/Pathdle.Api --launch-profile http

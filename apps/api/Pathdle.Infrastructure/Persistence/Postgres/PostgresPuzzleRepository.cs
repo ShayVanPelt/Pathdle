@@ -86,7 +86,9 @@ public sealed class PostgresPuzzleRepository(NpgsqlDataSource dataSource) : IPuz
         cmd.Parameters.AddWithValue("edges", PostgresJson.Serialize(edgeRows));
         cmd.Parameters.AddWithValue("optimal_path", PostgresJson.Serialize(puzzle.OptimalPath));
         cmd.Parameters.AddWithValue("optimal_length", puzzle.OptimalLength);
-        cmd.Parameters.AddWithValue("difficulty", PostgresJson.Serialize(new { note = "hand-authored seed" }));
+        cmd.Parameters.AddWithValue(
+            "difficulty",
+            PostgresJson.Serialize(puzzle.Difficulty ?? new { note = "unspecified" }));
         cmd.Parameters.AddWithValue("generator_seed", puzzle.GeneratorSeed);
         cmd.Parameters.AddWithValue("corpus_version", puzzle.CorpusVersion);
         cmd.Parameters.AddWithValue("published_at", puzzle.PublishedAt);

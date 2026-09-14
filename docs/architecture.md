@@ -88,7 +88,9 @@ See `infra/sql/migrations/001_init.sql`.
 - `player_games`: session progress keyed by `player_key`; includes `hint_edges` + `reveals`; nullable `user_id` for later auth.
 - `leaderboard_entries`: optional later.
 
-API Development uses `Pathdle:Storage=Postgres`. Production/default JSON keeps `InMemory` until Cloud Run is configured with `ConnectionStrings__Postgres`.
+**Local dev:** `appsettings.Development.json` sets `Pathdle:Storage=Postgres` with Docker connection string.
+
+**Production default:** `appsettings.json` keeps `InMemory` until Cloud Run is configured with `ConnectionStrings__Postgres` (or `Pathdle__Storage=Postgres` env).
 
 ## Neo4j
 
@@ -102,18 +104,23 @@ No player or daily-puzzle data in Neo4j for MVP.
 
 ## Daily generation
 
+See [`docs/generator.md`](generator.md) for the full quality model.
+
+Summary:
+
 1. Seed = hash(`puzzle_date` + `corpus_version`).
-2. Sample START / TARGET with shortest-path length in band (e.g. 3–6).
-3. Score difficulty (alt paths, dead ends, hubs, traps).
-4. Build ~60-node board: path ∪ distractors.
+2. Sample START / TARGET with shortest-path length in **{4, 5, 6}**.
+3. Score difficulty (alt paths, mid-path branches, hubs, traps).
+4. Build ~50–70 node board: optimal path ∪ mid-path trap branches ∪ light distractors.
 5. Induce subgraph edges; store layout positions (not graph-aware clustering).
 6. Idempotent publish: if `puzzle_date` exists, exit; never overwrite.
 
 ## Wikipedia corpus (MVP)
 
-- Curated seeds + bounded crawl (tens of thousands of articles max).
+- Curated seeds + bounded crawl (thousands of articles; config cap).
 - Versioned ingest (`corpus_version`); not rebuilt daily.
 - Edges leaving the subset are dropped.
+- Local Neo4j: Docker Compose service `neo4j` (`bolt://localhost:7687`).
 
 ## Graph versioning
 
@@ -139,16 +146,18 @@ docs/            Architecture and design notes
 
 ## Build order
 
-1. Schema + migrations
-2. API skeleton + seeded frozen puzzle (no Neo4j)
-3. Game endpoints (start / attempt / complete)
-4. SVG board UI (pan, zoom, draw, floating HUD)
-5. Wire web ↔ API
-6. Neo4j ingest for small subset
-7. Generator → Postgres publish
-8. Scheduler + Cloud Run Job
-9. Deploy
-10. Reveals, leaderboard, auth opt-in
+| Step | Status | Notes |
+|------|--------|-------|
+| 1. Schema + migrations | ✅ | `infra/sql/migrations/`; Docker init on first boot |
+| 2. API + seeded puzzle | ✅ | Postgres in dev; in-memory fallback in prod JSON |
+| 3. Game endpoints | ✅ | start / attempt / reveal / complete |
+| 4. SVG board UI | ✅ | pan, zoom, draw, floating HUD |
+| 5. Wire web ↔ API | ✅ | `NEXT_PUBLIC_API_BASE_URL` |
+| 6. Neo4j corpus ingest | ✅ | `ingest-corpus`; local Docker Neo4j |
+| 7. Generator → Postgres publish | ✅ | `generate-daily`; idempotent by date |
+| 8. Scheduler + Cloud Run Job | 🔲 | not deployed yet |
+| 9. Deploy (Vercel / Cloud Run) | 🔲 | |
+| 10. Leaderboard + auth opt-in | 🔲 | reveals implemented; leaderboard/auth later |
 
 ## Explicitly out of scope (for now)
 

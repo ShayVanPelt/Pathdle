@@ -29,6 +29,8 @@ public sealed class DailyPuzzle
     public required int OptimalLength { get; init; }
     public required string GeneratorSeed { get; init; }
     public required string CorpusVersion { get; init; }
+    /// <summary>Optional difficulty metrics jsonb payload (generator).</summary>
+    public object? Difficulty { get; init; }
     public DateTimeOffset PublishedAt { get; init; }
     public DateTimeOffset CreatedAt { get; init; }
 
