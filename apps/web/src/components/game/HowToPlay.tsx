@@ -47,7 +47,7 @@ export function HowToPlay({ open, onClose }: Props) {
           Pathdle
         </h2>
         <p className="mt-3 text-base leading-relaxed text-[var(--ink-muted)]">
-          A hidden constellation of Wikipedia articles. Points are a cost; guess carefully.
+          A hidden constellation of links within real Wikipedia articles. Points are a cost; guess carefully.
         </p>
 
         <ol className="mt-7 space-y-5">
