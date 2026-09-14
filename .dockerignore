@@ -1,0 +1,22 @@
+# Build context = monorepo root
+
+.git
+.github
+.cursor
+**/bin/
+**/obj/
+**/node_modules/
+**/.next/
+**/out/
+**/dist/
+**/TestResults/
+**/.vs/
+**/.idea/
+**/*.user
+**/.env
+**/.env.*
+!**/.env.example
+secrets/
+apps/web/
+infra/sql/
+*.md

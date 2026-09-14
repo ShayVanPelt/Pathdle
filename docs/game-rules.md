@@ -29,13 +29,14 @@ Already-confirmed links and already-revealed articles do not charge again.
 ## Controls
 
 - **Drag node → node** — test / confirm a link (draw-on success / brief miss on fail)
-- **Click node** (no drag) — open reveal-hints menu
+- **Click node** (no drag) — open chart note → Reveal outbound hints
 - **Drag background** — pan
-- **Scroll** — zoom
+- **Scroll / pinch / + −** — zoom; **recenter** fits START, TARGET, and path
+- Chart rail hops — select / focus a star on the path
 
 ## Presentation (UI)
 
-The playfield is a full-bleed night-atlas constellation. HUD floats at the corners (brand, score/links, path). See `.impeccable.md` and `apps/web/AGENTS.md` for visual rules — gameplay above is unchanged by chrome.
+Full-bleed night-void constellation. Top instrument row: brand | charted path | score/links. Labels sit inside node pills; display layout uses a circular ring (API coords are direction only). Edge styles: solid amber path, muted branch, dashed teal hints. Reaching TARGET auto-opens results. See `.impeccable.md` and `apps/web/AGENTS.md` — gameplay above is unchanged by chrome.
 
 ## Privacy / anti-spoiler
 

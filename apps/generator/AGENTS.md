@@ -17,6 +17,8 @@ dotnet run --project apps/generator/Pathdle.Generator -- diagnose-links --title=
 
 Default `generate-daily` date = **tomorrow UTC**. Use `--today` for local testing. Local corpus ingest often uses `--max-articles=1200` (full cap 8000).
 
+Cloud Run Job image: `apps/generator/Dockerfile` — see `docs/deploy-cloud-run.md`.
+
 ## Rules
 
 - Never overwrite an existing `daily_puzzles` row for a date — idempotent skip.

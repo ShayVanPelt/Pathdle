@@ -1,0 +1,34 @@
+# Pathdle Cloud Build — Generator Job image
+# Usage:
+#   gcloud builds submit --config infra/cloud/cloudbuild.generator.yaml \
+#     --substitutions=_REGION=us-central1,_REPOSITORY=pathdle,_IMAGE=pathdle-generator
+
+substitutions:
+  _REGION: us-central1
+  _REPOSITORY: pathdle
+  _IMAGE: pathdle-generator
+
+steps:
+  - name: gcr.io/cloud-builders/docker
+    args:
+      - build
+      - -f
+      - apps/generator/Dockerfile
+      - -t
+      - ${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPOSITORY}/${_IMAGE}:$SHORT_SHA
+      - -t
+      - ${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPOSITORY}/${_IMAGE}:latest
+      - .
+
+  - name: gcr.io/cloud-builders/docker
+    args:
+      - push
+      - --all-tags
+      - ${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPOSITORY}/${_IMAGE}
+
+images:
+  - ${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPOSITORY}/${_IMAGE}:$SHORT_SHA
+  - ${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPOSITORY}/${_IMAGE}:latest
+
+options:
+  logging: CLOUD_LOGGING_ONLY

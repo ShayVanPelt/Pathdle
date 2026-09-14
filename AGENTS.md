@@ -28,7 +28,7 @@ Points are a cost (lower is better):
 
 - Successful link drag: **+100** (permanent; branching from any charted node is allowed)
 - Failed link drag: **+100** (miss animation, no line)
-- Reveal outbound from a node (click → menu): **+75** (dashed hints only — not permanent path links; confirming a link does not remove the hint record)
+- Reveal outbound from a node (click → chart note): **+75** (dashed hints only — not permanent path links; confirming a link does not remove the hint record)
 - No link removal / undo — score only increases for new actions
 
 See `docs/game-rules.md`, `Pathdle.Application.ScoringRules`, and web `SCORING`.
@@ -37,7 +37,7 @@ See `docs/game-rules.md`, `Pathdle.Application.ScoringRules`, and web `SCORING`.
 
 See `.impeccable.md` and `apps/web/AGENTS.md` before UI work.
 
-**Visual product:** full-bleed knowledge constellation; floating corner HUD; graph is the hero.
+**Visual product:** full-bleed night-void constellation; top instrument HUD (brand | path rail | score); graph is the hero. Labels inside node pills; circular display ring.
 
 **Anti-slop (always):** no Inter/Roboto/Arial as brand fonts; no purple-on-white / indigo gradients; no cyan-glow dark “AI dashboard”; no cream+terracotta newspaper look; no card soup; no emoji decoration; no gradient headline text; no bulky side panels trapping the board.
 

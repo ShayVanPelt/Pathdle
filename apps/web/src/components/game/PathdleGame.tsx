@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   attemptConnection,
   completeGame,
@@ -10,12 +10,13 @@ import {
 } from "@/lib/api/client";
 import type { CompleteResponse, GameState } from "@/lib/api/types";
 import { getOrCreatePlayerKey } from "@/lib/playerKey";
+import { FieldAtmosphere } from "./FieldAtmosphere";
 import { GameBoard } from "./GameBoard";
 import { GameHud } from "./GameHud";
 import { HowToPlay } from "./HowToPlay";
 import { ResultsPanel } from "./ResultsPanel";
 
-const HELP_SEEN_KEY = "pathdle.howto_seen.v3";
+const HELP_SEEN_KEY = "pathdle.howto_seen.v4";
 
 export function PathdleGame() {
   const [game, setGame] = useState<GameState | null>(null);
@@ -27,9 +28,11 @@ export function PathdleGame() {
   const [result, setResult] = useState<CompleteResponse | null>(null);
   const [helpOpen, setHelpOpen] = useState(false);
   const [menuNodeId, setMenuNodeId] = useState<string | null>(null);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
   const [highlightedNeighborIds, setHighlightedNeighborIds] = useState<string[]>(
     [],
   );
+  const autoCompleteRef = useRef(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -53,6 +56,7 @@ export function PathdleGame() {
           revealedArticleIds: state.revealedArticleIds ?? [],
           hintEdges: state.hintEdges ?? [],
         });
+        setSelectedId(state.startArticleId);
       } catch (err) {
         if (cancelled) return;
         setError(
@@ -154,34 +158,52 @@ export function PathdleGame() {
       setResult(done);
       setGame((prev) => (prev ? { ...prev, status: "completed" } : prev));
     } catch (err) {
+      autoCompleteRef.current = false;
       showFeedback(err instanceof Error ? err.message : "Could not complete");
     } finally {
       setCompleting(false);
     }
   }, [game, playerKey, showFeedback]);
 
+  useEffect(() => {
+    if (!game?.reachedTarget || game.status !== "active" || autoCompleteRef.current) {
+      return;
+    }
+    autoCompleteRef.current = true;
+    void onComplete();
+  }, [game?.reachedTarget, game?.status, onComplete]);
+
+  const startNode = useMemo(
+    () => game?.nodes.find((n) => n.kind === "start"),
+    [game],
+  );
+  const targetNode = useMemo(
+    () => game?.nodes.find((n) => n.kind === "target"),
+    [game],
+  );
+
   if (loading) {
     return (
-      <div className="relative flex h-dvh items-center justify-center overflow-hidden bg-[var(--field)]">
-        <div className="pathdle-atmosphere" aria-hidden />
-        <p className="relative z-[1] font-[family-name:var(--font-display)] text-2xl text-[var(--ink-muted)]">
+      <div className="relative flex h-dvh items-center justify-center overflow-hidden bg-[var(--field-void)]">
+        <FieldAtmosphere />
+        <p className="relative z-[1] font-[family-name:var(--font-display)] text-3xl text-[var(--ink-muted)] sm:text-4xl">
           Charting today&apos;s sky…
         </p>
       </div>
     );
   }
 
-  if (error || !game) {
+  if (error || !game || !startNode || !targetNode) {
     return (
-      <div className="relative flex h-dvh flex-col items-center justify-center gap-3 overflow-hidden bg-[var(--field)] px-6 text-center">
-        <div className="pathdle-atmosphere" aria-hidden />
-        <p className="relative z-[1] font-[family-name:var(--font-display)] text-3xl text-[var(--ink-bright)]">
+      <div className="relative flex h-dvh flex-col items-center justify-center gap-3 overflow-hidden bg-[var(--field-void)] px-6 text-center">
+        <FieldAtmosphere />
+        <p className="relative z-[1] font-[family-name:var(--font-display)] text-4xl text-[var(--ink-bright)]">
           Pathdle
         </p>
-        <p className="relative z-[1] max-w-md text-[var(--ink-muted)]">
+        <p className="relative z-[1] max-w-md text-lg text-[var(--ink-muted)]">
           {error ?? "No game loaded."}
         </p>
-        <p className="relative z-[1] text-sm text-[var(--ink-muted)]">
+        <p className="relative z-[1] text-base text-[var(--ink-muted)]">
           Run{" "}
           <code className="text-[var(--accent)]">
             dotnet run --project apps/api/Pathdle.Api --launch-profile http
@@ -192,7 +214,7 @@ export function PathdleGame() {
   }
 
   return (
-    <div className="relative h-dvh w-full overflow-hidden bg-[var(--field)]">
+    <div className="relative h-dvh w-full overflow-hidden bg-[var(--field-void)]">
       <GameBoard
         nodes={game.nodes}
         discoveredEdges={game.discoveredEdges}
@@ -200,10 +222,15 @@ export function PathdleGame() {
         playerPath={game.playerPath}
         revealedArticleIds={game.revealedArticleIds ?? []}
         highlightedNeighborIds={highlightedNeighborIds}
+        selectedId={selectedId}
         menuNodeId={menuNodeId}
-        disabled={game.status !== "active" || helpOpen}
+        playLocked={game.status !== "active" || helpOpen || Boolean(result)}
+        onSelectedChange={setSelectedId}
         onAttempt={onAttempt}
-        onNodeClick={(id) => setMenuNodeId(id)}
+        onNodeClick={(id) => {
+          setSelectedId(id);
+          setMenuNodeId(id);
+        }}
         onRevealRequest={onRevealRequest}
         onCloseMenu={() => setMenuNodeId(null)}
         feedback={feedback}
@@ -213,15 +240,26 @@ export function PathdleGame() {
         connectionCount={game.connectionCount}
         score={game.score}
         path={game.playerPath}
+        startId={startNode.id}
+        targetId={targetNode.id}
+        startTitle={startNode.title}
+        targetTitle={targetNode.title}
+        selectedId={selectedId}
         reachedTarget={game.reachedTarget}
-        status={game.status}
-        onComplete={onComplete}
+        onSelectNode={(id) => {
+          setSelectedId(id);
+          setMenuNodeId(id);
+        }}
         onOpenHelp={() => setHelpOpen(true)}
-        completing={completing}
       />
       <HowToPlay open={helpOpen} onClose={closeHelp} />
       {result && (
         <ResultsPanel result={result} onClose={() => setResult(null)} />
+      )}
+      {completing && !result && (
+        <p className="pointer-events-none absolute bottom-28 left-1/2 z-30 -translate-x-1/2 pathdle-hud-chip rounded-full px-5 py-2.5 text-base text-[var(--ink-bright)]">
+          Logging the voyage…
+        </p>
       )}
     </div>
   );

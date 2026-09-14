@@ -32,6 +32,8 @@ Cloud Scheduler → Cloud Run Job (Pathdle.Generator)
 Next.js (Vercel) ⇄ ASP.NET Core (Cloud Run) ⇄ Postgres
                          ↑
                     Neo4j not on this path
+
+Deploy guide: `docs/deploy-cloud-run.md` (`apps/api/Dockerfile`, `infra/cloud/deploy-api.*`).
 ```
 
 ## Identity
@@ -140,7 +142,9 @@ docs/            Architecture and design notes
 
 ## Frontend UX (web)
 
-- Full-bleed SVG constellation on a night-atlas atmosphere; floating corner HUD (no side panels).
+- Full-bleed SVG constellation on a near-black night-void atmosphere; top instrument HUD (brand | path rail | score) — no side panels.
+- In-node pill labels; circular display spacing from API coordinates (display-only).
+- Camera: pan, wheel/pinch/+− zoom, recenter. Chart note for reveals; auto-open results on TARGET.
 - Visual redesign must not change gameplay contracts (attempts, reveals, scoring, path).
 - Design source of truth: `.impeccable.md` and `apps/web/AGENTS.md`.
 
@@ -151,12 +155,12 @@ docs/            Architecture and design notes
 | 1. Schema + migrations | ✅ | `infra/sql/migrations/`; Docker init on first boot |
 | 2. API + seeded puzzle | ✅ | Postgres in dev; in-memory fallback in prod JSON |
 | 3. Game endpoints | ✅ | start / attempt / reveal / complete |
-| 4. SVG board UI | ✅ | pan, zoom, draw, floating HUD |
+| 4. SVG board UI | ✅ | pan, zoom, in-node pills, path rail HUD, chart note, results |
 | 5. Wire web ↔ API | ✅ | `NEXT_PUBLIC_API_BASE_URL` |
 | 6. Neo4j corpus ingest | ✅ | `ingest-corpus`; local Docker Neo4j |
 | 7. Generator → Postgres publish | ✅ | `generate-daily`; idempotent by date |
-| 8. Scheduler + Cloud Run Job | 🔲 | not deployed yet |
-| 9. Deploy (Vercel / Cloud Run) | 🔲 | |
+| 8. Scheduler + Cloud Run Job | 🔲 | Generator Dockerfile ready; Scheduler not wired |
+| 9. Deploy (Vercel / Cloud Run) | 🔲 | API Dockerfile + `docs/deploy-cloud-run.md` ready |
 | 10. Leaderboard + auth opt-in | 🔲 | reveals implemented; leaderboard/auth later |
 
 ## Explicitly out of scope (for now)

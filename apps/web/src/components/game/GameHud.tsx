@@ -1,17 +1,21 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { ChartRail } from "./ChartRail";
 
 type Props = {
   brand: string;
   connectionCount: number;
   score: number;
   path: string[];
+  startId: string;
+  targetId: string;
+  startTitle: string;
+  targetTitle: string;
+  selectedId: string | null;
   reachedTarget: boolean;
-  status: string;
-  onComplete: () => void;
+  onSelectNode: (id: string) => void;
   onOpenHelp: () => void;
-  completing?: boolean;
 };
 
 function AnimatedScore({ value }: { value: number }) {
@@ -47,7 +51,7 @@ function AnimatedScore({ value }: { value: number }) {
 
   return (
     <p
-      className={`pathdle-score-value font-[family-name:var(--font-display)] text-2xl leading-none text-[var(--accent)] sm:text-[1.65rem] ${
+      className={`pathdle-score-value font-[family-name:var(--font-display)] text-[1.85rem] leading-none text-[var(--accent)] sm:text-[2.15rem] ${
         bump ? "is-bump" : ""
       }`}
     >
@@ -61,100 +65,66 @@ export function GameHud({
   connectionCount,
   score,
   path,
+  startId,
+  targetId,
+  startTitle,
+  targetTitle,
+  selectedId,
   reachedTarget,
-  status,
-  onComplete,
+  onSelectNode,
   onOpenHelp,
-  completing,
 }: Props) {
-  const pathTitles =
-    path.length <= 1
-      ? null
-      : path.map((id) => id.replaceAll("_", " "));
-
   return (
-    <>
-      {/* Top-left brand */}
-      <header className="pointer-events-none absolute left-0 top-0 z-20 flex items-start gap-3 p-4 sm:p-5">
-        <div className="pointer-events-auto">
-          <div className="flex items-baseline gap-3">
-            <h1 className="font-[family-name:var(--font-display)] text-[1.85rem] leading-none tracking-tight text-[var(--ink-bright)] sm:text-[2.15rem]">
-              {brand}
-            </h1>
-            <button
-              type="button"
-              onClick={onOpenHelp}
-              className="text-[0.7rem] font-medium uppercase tracking-[0.14em] text-[var(--ink-muted)] transition hover:text-[var(--ink-bright)]"
-            >
-              How to play
-            </button>
-          </div>
-        </div>
-      </header>
+    <header className="pointer-events-none absolute inset-x-0 top-0 z-20 flex items-stretch gap-2.5 p-3 sm:gap-4 sm:p-5">
+      <div className="pointer-events-auto pathdle-instrument flex shrink-0 items-center gap-3 self-stretch rounded-2xl px-3 py-2.5 sm:gap-4 sm:px-5 sm:py-3">
+        <h1 className="font-[family-name:var(--font-display)] text-[1.7rem] leading-none tracking-tight text-[var(--ink-bright)] sm:text-[2.15rem]">
+          {brand}
+        </h1>
+        <button
+          type="button"
+          onClick={onOpenHelp}
+          className="flex items-center gap-2 rounded-full px-1.5 py-1 text-[0.72rem] font-semibold uppercase tracking-[0.16em] text-[var(--ink-muted)] transition hover:text-[var(--ink-bright)]"
+        >
+          <span
+            className="grid h-6 w-6 place-items-center rounded-full border border-[var(--hud-border)] text-[0.8rem] text-[var(--accent)]"
+            aria-hidden
+          >
+            ?
+          </span>
+          <span className="hidden sm:inline">How to play</span>
+        </button>
+      </div>
 
-      {/* Top-right stats */}
-      <div className="pointer-events-none absolute right-0 top-0 z-20 flex items-start gap-3 p-4 sm:gap-4 sm:p-5">
-        <div className="pointer-events-auto text-right">
-          <p className="text-[0.6rem] uppercase tracking-[0.2em] text-[var(--ink-dim)]">
+      <div className="flex min-w-0 flex-1 self-stretch">
+        <ChartRail
+          path={path}
+          startId={startId}
+          targetId={targetId}
+          startTitle={startTitle}
+          targetTitle={targetTitle}
+          selectedId={selectedId}
+          reachedTarget={reachedTarget}
+          onSelect={onSelectNode}
+        />
+      </div>
+
+      <div className="pointer-events-auto pathdle-instrument flex shrink-0 items-center gap-4 self-stretch rounded-2xl px-3 py-2.5 sm:gap-5 sm:px-5 sm:py-3">
+        <div className="text-right">
+          <p className="text-[0.58rem] font-semibold uppercase tracking-[0.2em] text-[var(--ink-dim)]">
             Score
           </p>
           <AnimatedScore value={score} />
         </div>
-        <div className="pointer-events-auto text-right">
-          <p className="text-[0.6rem] uppercase tracking-[0.2em] text-[var(--ink-dim)]">
+        <div className="w-px self-stretch bg-[var(--hud-border)]" aria-hidden />
+        <div className="text-right">
+          <p className="text-[0.58rem] font-semibold uppercase tracking-[0.2em] text-[var(--ink-dim)]">
             Links
           </p>
-          <p className="font-[family-name:var(--font-display)] text-2xl leading-none text-[var(--ink-bright)] sm:text-[1.65rem]">
+          <p className="font-[family-name:var(--font-display)] text-[1.85rem] leading-none text-[var(--ink-bright)] sm:text-[2.15rem]">
             {connectionCount}
           </p>
         </div>
       </div>
-
-      {/* Bottom path + hint */}
-      <footer className="pointer-events-none absolute inset-x-0 bottom-0 z-20 flex flex-col gap-3 p-4 sm:flex-row sm:items-end sm:justify-between sm:p-5">
-        <div className="pointer-events-auto max-w-md sm:max-w-lg">
-          {pathTitles ? (
-            <div>
-              <p className="text-[0.58rem] uppercase tracking-[0.18em] text-[var(--ink-dim)]">
-                Current path
-              </p>
-              <p className="mt-1 text-[0.8rem] leading-relaxed text-[var(--ink-muted)] sm:text-[0.85rem]">
-                {pathTitles.map((title, i) => (
-                  <span key={`${title}-${i}`}>
-                    {i > 0 && (
-                      <span className="mx-1.5 text-[var(--accent-soft)]">→</span>
-                    )}
-                    <span className="text-[var(--ink-bright)]">{title}</span>
-                  </span>
-                ))}
-              </p>
-            </div>
-          ) : (
-            <p className="text-[0.8rem] text-[var(--ink-dim)]">
-              Drag empty space to pan · drag a node to connect
-            </p>
-          )}
-        </div>
-
-        <div className="pointer-events-auto flex flex-wrap items-center gap-3 sm:justify-end">
-          {pathTitles && (
-            <p className="hidden text-[0.72rem] text-[var(--ink-dim)] md:block">
-              Drag empty space to pan · scroll to zoom
-            </p>
-          )}
-
-          {reachedTarget && status !== "completed" && (
-            <button
-              type="button"
-              onClick={onComplete}
-              disabled={completing}
-              className="rounded-md bg-[var(--accent)] px-4 py-2.5 text-sm font-semibold text-[oklch(0.14_0.03_250)] transition hover:brightness-110 disabled:opacity-60"
-            >
-              {completing ? "Finishing…" : "See results"}
-            </button>
-          )}
-        </div>
-      </footer>
-    </>
+    </header>
   );
 }

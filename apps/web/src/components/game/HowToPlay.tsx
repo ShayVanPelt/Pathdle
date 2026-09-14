@@ -10,19 +10,19 @@ type Props = {
 const STEPS = [
   {
     title: "Goal",
-    body: "Get from START to TARGET. Links are one-way. Lower score wins.",
+    body: "Chart a path from the gold START star to the teal TARGET. Links are one-way. Lower score wins.",
   },
   {
-    title: `Test a link (+${SCORING.successfulLink} or +${SCORING.failedLink})`,
-    body: `Drag from one node to another. A real link stays forever (+${SCORING.successfulLink}). A miss costs +${SCORING.failedLink}. No undoing links.`,
+    title: `Test a link (+${SCORING.successfulLink})`,
+    body: `Drag one star onto another. A real link stays as a solid gold path. A miss still costs +${SCORING.failedLink}. No undoing.`,
   },
   {
     title: `Reveal hints (+${SCORING.revealOutbound})`,
-    body: `Click a node (don't drag) → Reveal hints. Dashed lines are hints only — drag to confirm a path link.`,
+    body: "Tap a star for its chart note, then reveal outbound hints. Dashed teal lines are hints only — drag to confirm.",
   },
   {
-    title: "Explore the map",
-    body: "Drag empty space to pan. Scroll to zoom.",
+    title: "Explore the sky",
+    body: "Drag empty space to pan. Scroll, pinch, or use + / − to zoom. Recenter fits your path in view.",
   },
 ] as const;
 
@@ -31,37 +31,34 @@ export function HowToPlay({ open, onClose }: Props) {
 
   return (
     <div
-      className="absolute inset-0 z-40 flex items-center justify-center bg-[oklch(0.08_0.03_250_/_0.72)] p-5 backdrop-blur-sm"
+      className="absolute inset-0 z-40 flex items-center justify-center bg-[oklch(0.04_0.02_275_/_0.78)] p-5 backdrop-blur-sm"
       role="dialog"
       aria-modal="true"
       aria-labelledby="howto-title"
     >
-      <div className="pathdle-hud-chip w-full max-w-md rounded-xl p-6 shadow-2xl sm:p-8">
-        <p className="text-[0.65rem] uppercase tracking-[0.2em] text-[var(--accent)]">
+      <div className="pathdle-instrument w-full max-w-lg rounded-3xl p-6 shadow-2xl sm:p-9">
+        <p className="text-[0.7rem] font-semibold uppercase tracking-[0.22em] text-[var(--accent)]">
           How to play
         </p>
         <h2
           id="howto-title"
-          className="mt-2 font-[family-name:var(--font-display)] text-3xl text-[var(--ink-bright)]"
+          className="mt-2 font-[family-name:var(--font-display)] text-4xl text-[var(--ink-bright)]"
         >
           Pathdle
         </h2>
-        <p className="mt-2 text-sm leading-relaxed text-[var(--ink-muted)]">
-          Chart a path through a hidden knowledge network. Points are a cost —
-          guess carefully.
+        <p className="mt-3 text-base leading-relaxed text-[var(--ink-muted)]">
+          A hidden constellation of Wikipedia articles. Points are a cost — guess carefully.
         </p>
 
-        <ol className="mt-6 space-y-4">
+        <ol className="mt-7 space-y-5">
           {STEPS.map((step, index) => (
-            <li key={step.title} className="flex gap-3">
-              <span className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-[var(--accent)] text-xs font-semibold text-[oklch(0.14_0.03_250)]">
+            <li key={step.title} className="flex gap-3.5">
+              <span className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[var(--accent)] text-sm font-semibold text-[oklch(0.12_0.03_80)]">
                 {index + 1}
               </span>
               <div>
-                <p className="text-sm font-semibold text-[var(--ink-bright)]">
-                  {step.title}
-                </p>
-                <p className="mt-0.5 text-sm leading-relaxed text-[var(--ink-muted)]">
+                <p className="text-lg font-semibold text-[var(--ink-bright)]">{step.title}</p>
+                <p className="mt-1 text-base leading-relaxed text-[var(--ink-muted)]">
                   {step.body}
                 </p>
               </div>
@@ -72,7 +69,7 @@ export function HowToPlay({ open, onClose }: Props) {
         <button
           type="button"
           onClick={onClose}
-          className="mt-8 w-full rounded-md bg-[var(--accent)] px-4 py-3 text-sm font-semibold text-[oklch(0.14_0.03_250)] transition hover:brightness-110"
+          className="mt-8 w-full rounded-xl bg-[var(--accent)] px-4 py-3.5 text-base font-semibold text-[oklch(0.12_0.03_80)] transition hover:brightness-110"
         >
           Got it — start charting
         </button>

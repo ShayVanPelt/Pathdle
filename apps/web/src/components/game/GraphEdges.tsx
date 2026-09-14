@@ -1,8 +1,7 @@
 "use client";
 
 import type { Edge } from "@/lib/api/types";
-
-type Point = { x: number; y: number };
+import { edgeCurvePath, type Point, type Rect } from "@/lib/graph/layout";
 
 type GhostLine = {
   from: Point;
@@ -14,20 +13,43 @@ type GhostLine = {
 
 type Props = {
   positions: Map<string, Point>;
+  obstacles: Rect[];
   discoveredEdges: Edge[];
   visibleHints: Edge[];
-  pathSet: Set<string>;
+  pathEdgeKeys: Set<string>;
   ghost: GhostLine | null;
   dragLine: { from: Point; to: Point; nearValid: boolean } | null;
+  focusId: string | null;
+  focusNeighborIds: Set<string>;
 };
+
+function edgeDim(
+  from: string,
+  to: string,
+  focusId: string | null,
+  neighbors: Set<string>,
+  onPath: boolean,
+) {
+  if (!focusId) return "";
+  const involved =
+    from === focusId ||
+    to === focusId ||
+    (neighbors.has(from) && neighbors.has(to));
+  if (involved) return "";
+  if (onPath) return " is-soft";
+  return " is-dimmed";
+}
 
 export function GraphEdges({
   positions,
+  obstacles,
   discoveredEdges,
   visibleHints,
-  pathSet,
+  pathEdgeKeys,
   ghost,
   dragLine,
+  focusId,
+  focusNeighborIds,
 }: Props) {
   return (
     <g pointerEvents="none">
@@ -35,24 +57,19 @@ export function GraphEdges({
         const a = positions.get(edge.from);
         const b = positions.get(edge.to);
         if (!a || !b) return null;
+        const d = edgeCurvePath(a, b, obstacles);
         return (
-          <g key={`hint-${edge.from}->${edge.to}`}>
-            <line
-              x1={a.x}
-              y1={a.y}
-              x2={b.x}
-              y2={b.y}
-              className="stroke-[var(--hint)] stroke-[1.75] pathdle-hint-edge"
-              strokeDasharray="4 6"
+          <g
+            key={`hint-${edge.from}->${edge.to}`}
+            className={`pathdle-edge-layer${edgeDim(edge.from, edge.to, focusId, focusNeighborIds, false)}`}
+          >
+            <path
+              d={d}
+              fill="none"
+              className="pathdle-hint-edge stroke-[var(--hint)]"
+              strokeWidth={2.25}
+              strokeDasharray="7 9"
               strokeLinecap="round"
-              opacity={0.7}
-            />
-            <circle
-              cx={(a.x + b.x) / 2}
-              cy={(a.y + b.y) / 2}
-              r={2.5}
-              className="fill-[var(--hint)]"
-              opacity={0.75}
             />
           </g>
         );
@@ -62,33 +79,53 @@ export function GraphEdges({
         const a = positions.get(edge.from);
         const b = positions.get(edge.to);
         if (!a || !b) return null;
-        const onPath = pathSet.has(edge.from) && pathSet.has(edge.to);
-        const stroke = onPath ? "var(--accent)" : "oklch(0.72 0.04 85 / 0.5)";
-        return (
-          <g key={`${edge.from}->${edge.to}`}>
-            <line
-              x1={a.x}
-              y1={a.y}
-              x2={b.x}
-              y2={b.y}
-              stroke={stroke}
-              strokeWidth={onPath ? 2.75 : 2}
-              strokeLinecap="round"
-              className="pathdle-edge-in pathdle-edge-settled"
-            />
-            {/* Very subtle flowing dash on path edges only */}
-            {onPath && (
-              <line
-                x1={a.x}
-                y1={a.y}
-                x2={b.x}
-                y2={b.y}
+        const key = `${edge.from}->${edge.to}`;
+        const onPath = pathEdgeKeys.has(key);
+        const d = edgeCurvePath(a, b, obstacles);
+        const dim = edgeDim(edge.from, edge.to, focusId, focusNeighborIds, onPath);
+
+        if (onPath) {
+          return (
+            <g key={key} className={`pathdle-edge-layer${dim}`}>
+              <path
+                d={d}
+                fill="none"
                 stroke="var(--accent)"
-                strokeWidth={1.25}
+                strokeWidth={6}
+                strokeLinecap="round"
+                className="pathdle-edge-path-glow"
+                opacity={0.42}
+              />
+              <path
+                d={d}
+                fill="none"
+                stroke="var(--accent)"
+                strokeWidth={3.6}
+                strokeLinecap="round"
+                className="pathdle-edge-in pathdle-edge-path"
+              />
+              <path
+                d={d}
+                fill="none"
+                stroke="oklch(0.96 0.06 78)"
+                strokeWidth={1.35}
                 strokeLinecap="round"
                 className="pathdle-edge-flow"
               />
-            )}
+            </g>
+          );
+        }
+
+        return (
+          <g key={key} className={`pathdle-edge-layer${dim}`}>
+            <path
+              d={d}
+              fill="none"
+              stroke="oklch(0.78 0.06 80 / 0.85)"
+              strokeWidth={2.4}
+              strokeLinecap="round"
+              className="pathdle-edge-in pathdle-edge-branch"
+            />
           </g>
         );
       })}
@@ -100,18 +137,18 @@ export function GraphEdges({
             y1={ghost.from.y}
             x2={ghost.to.x}
             y2={ghost.to.y}
-            className="stroke-[var(--fail)] stroke-[3] pathdle-edge-fail"
+            className="stroke-[var(--fail)] stroke-[3.5] pathdle-edge-fail"
             strokeLinecap="round"
           />
           <circle
             cx={ghost.to.x}
             cy={ghost.to.y}
-            r={20}
+            r={24}
             className="pathdle-fail-ring fill-none stroke-[var(--fail)]"
           />
           <text
             x={(ghost.from.x + ghost.to.x) / 2}
-            y={(ghost.from.y + ghost.to.y) / 2 - 14}
+            y={(ghost.from.y + ghost.to.y) / 2 - 16}
             textAnchor="middle"
             className="pathdle-fail-label fill-[var(--fail)]"
           >
@@ -127,7 +164,7 @@ export function GraphEdges({
           y1={ghost.from.y}
           x2={ghost.to.x}
           y2={ghost.to.y}
-          className="stroke-[var(--accent)] stroke-[2.5] opacity-60 pathdle-drag-line"
+          className="stroke-[var(--accent)] stroke-[3] opacity-70 pathdle-drag-line"
           strokeLinecap="round"
         />
       )}
@@ -138,12 +175,12 @@ export function GraphEdges({
           y1={dragLine.from.y}
           x2={dragLine.to.x}
           y2={dragLine.to.y}
-          stroke={dragLine.nearValid ? "var(--accent)" : "oklch(0.75 0.04 85 / 0.55)"}
-          strokeWidth={dragLine.nearValid ? 2.75 : 2}
+          stroke={dragLine.nearValid ? "var(--accent)" : "oklch(0.82 0.05 85 / 0.6)"}
+          strokeWidth={dragLine.nearValid ? 3.4 : 2.5}
           strokeLinecap="round"
-          strokeDasharray={dragLine.nearValid ? undefined : "5 5"}
+          strokeDasharray={dragLine.nearValid ? undefined : "6 6"}
           className="pathdle-drag-line"
-          opacity={dragLine.nearValid ? 0.95 : 0.65}
+          opacity={dragLine.nearValid ? 0.98 : 0.7}
         />
       )}
     </g>

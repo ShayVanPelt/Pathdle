@@ -1,12 +1,20 @@
 "use client";
 
-import type { CSSProperties, PointerEvent } from "react";
+import type { PointerEvent } from "react";
 import type { PuzzleNode } from "@/lib/api/types";
+import {
+  labelChipPath,
+  LINE_H,
+  nodeBody,
+  PAD_Y,
+  TAG_H,
+} from "@/lib/graph/layout";
+
+export type NodeExploration = "start" | "target" | "path" | "branch" | "option";
 
 type Props = {
   node: PuzzleNode;
-  onPath: boolean;
-  connected: boolean;
+  exploration: NodeExploration;
   selected: boolean;
   hovered: boolean;
   highlighted: boolean;
@@ -14,22 +22,16 @@ type Props = {
   approach: boolean;
   linkingFrom: boolean;
   justConnected: boolean;
-  floatStyle: CSSProperties;
-  disabled?: boolean;
+  dimmed: boolean;
+  playLocked?: boolean;
   onPointerDown: (event: PointerEvent) => void;
   onPointerEnter: () => void;
   onPointerLeave: () => void;
 };
 
-function coreRadius(kind: PuzzleNode["kind"]) {
-  if (kind === "start" || kind === "target") return 8;
-  return 5.5;
-}
-
 export function GraphNode({
   node,
-  onPath,
-  connected,
+  exploration,
   selected,
   hovered,
   highlighted,
@@ -37,154 +39,146 @@ export function GraphNode({
   approach,
   linkingFrom,
   justConnected,
-  floatStyle,
-  disabled,
+  dimmed,
+  playLocked,
   onPointerDown,
   onPointerEnter,
   onPointerLeave,
 }: Props) {
-  const isStart = node.kind === "start";
-  const isTarget = node.kind === "target";
-  const r = coreRadius(node.kind);
-  const hitR = r + 16;
+  const isStart = exploration === "start";
+  const isTarget = exploration === "target";
+  const onPath = exploration === "path" || isStart || isTarget;
+  const isBranch = exploration === "branch";
+  const isOption = exploration === "option";
+  const body = nodeBody(node);
   const active = selected || hovered || approach || linkingFrom;
+
   const accent = isStart
     ? "var(--accent)"
     : isTarget
       ? "var(--target)"
-      : connected || onPath
-        ? "var(--node-connected)"
-        : "var(--node-core)";
+      : onPath
+        ? "var(--node-path)"
+        : isBranch
+          ? "var(--node-connected)"
+          : "var(--node-core)";
 
-  const glowOpacity = active ? 0.55 : connected || onPath ? 0.38 : 0.22;
+  const firstLineY =
+    -body.h / 2 + PAD_Y + (body.hasTag ? TAG_H : 0) + LINE_H * 0.72;
 
   return (
     <g
       data-node-id={node.id}
+      className={`pathdle-node-layer${dimmed ? " is-dimmed" : ""}`}
       onPointerDown={onPointerDown}
       onPointerEnter={onPointerEnter}
       onPointerLeave={onPointerLeave}
-      style={{ cursor: disabled ? "default" : "crosshair" }}
+      style={{ cursor: playLocked ? "default" : "crosshair" }}
     >
-      <circle r={hitR} fill="transparent" />
+      <rect
+        x={-body.w / 2 - 8}
+        y={-body.h / 2 - 8}
+        width={body.w + 16}
+        height={body.h + 16}
+        fill="transparent"
+      />
 
       <g
-        className={connected || onPath ? undefined : "pathdle-node-float"}
-        style={connected || onPath ? undefined : floatStyle}
+        className={`pathdle-node-visual${active ? " is-hover" : ""}${onPath ? " is-on-path" : ""}${isOption ? " is-option" : ""}`}
       >
-        <g className={`pathdle-node-visual${active || approach ? " is-hover" : ""}`}>
-          {highlighted && (
-            <circle
-              r={r + 14}
-              className="pathdle-neighbor-pulse fill-none stroke-[var(--accent)]"
-              strokeWidth={1.5}
-              pointerEvents="none"
-            />
-          )}
-
-          <circle
-            r={r + (isStart || isTarget ? 14 : 10)}
-            fill={accent}
-            opacity={glowOpacity * 0.35}
-            className={isTarget ? "pathdle-node-target-pulse" : "pathdle-node-halo"}
+        {highlighted && (
+          <rect
+            x={-body.w / 2 - 10}
+            y={-body.h / 2 - 10}
+            width={body.w + 20}
+            height={body.h + 20}
+            rx={body.r + 8}
+            className="pathdle-neighbor-pulse fill-none stroke-[var(--hint)]"
+            strokeWidth={2}
             pointerEvents="none"
           />
+        )}
 
-          {isStart && (
-            <circle
-              r={r + 11}
-              fill="none"
-              stroke="var(--accent)"
-              strokeOpacity={0.4}
-              strokeWidth={1}
-              strokeDasharray="3 5"
-              className="pathdle-node-ring"
-              pointerEvents="none"
-            />
-          )}
+        <ellipse
+          rx={body.w * 0.42}
+          ry={body.h * 0.55}
+          fill={accent}
+          opacity={active ? 0.28 : onPath ? 0.2 : 0.1}
+          className={isTarget ? "pathdle-node-target-pulse" : "pathdle-node-halo"}
+          pointerEvents="none"
+        />
 
-          {isTarget && (
-            <circle
-              r={r + 11}
-              fill="none"
-              stroke="var(--target)"
-              strokeOpacity={0.45}
-              strokeWidth={1.25}
-              className="pathdle-node-target-pulse"
-              pointerEvents="none"
-            />
-          )}
-
-          {(approach || linkingFrom) && (
-            <circle
-              r={r + 9}
-              fill="none"
-              stroke={accent}
-              strokeOpacity={0.7}
-              strokeWidth={1.25}
-              pointerEvents="none"
-            />
-          )}
-
-          {justConnected && (
-            <circle
-              r={r + 6}
-              fill="none"
-              stroke={accent}
-              strokeWidth={2}
-              className="pathdle-node-connect-flash"
-              pointerEvents="none"
-            />
-          )}
-
-          <circle
-            r={r}
-            fill={accent}
-            opacity={isStart || isTarget ? 0.95 : connected || onPath ? 0.9 : 0.78}
-            stroke={
-              active || revealed
-                ? "oklch(0.96 0.02 85 / 0.85)"
-                : "oklch(0.2 0.03 250 / 0.5)"
-            }
-            strokeWidth={active || revealed ? 1.75 : 1}
-            filter="url(#node-glow)"
+        {justConnected && (
+          <rect
+            x={-body.w / 2 - 6}
+            y={-body.h / 2 - 6}
+            width={body.w + 12}
+            height={body.h + 12}
+            rx={body.r + 4}
+            fill="none"
+            stroke={accent}
+            strokeWidth={2.5}
+            className="pathdle-node-connect-flash"
             pointerEvents="none"
           />
+        )}
 
-          <circle
-            cx={-r * 0.28}
-            cy={-r * 0.32}
-            r={r * 0.22}
-            fill="oklch(0.98 0.01 85 / 0.55)"
-            pointerEvents="none"
-          />
+        <path
+          d={labelChipPath(body.w, body.h, body.r)}
+          className={`pathdle-node-body${onPath || isStart || isTarget ? " is-path" : isBranch ? " is-branch" : ""}${selected ? " is-selected" : ""}`}
+          stroke={
+            selected
+              ? "var(--focus)"
+              : active || revealed
+                ? accent
+                : isStart
+                  ? "var(--accent)"
+                  : isTarget
+                    ? "var(--target)"
+                    : onPath
+                      ? "var(--accent)"
+                      : isBranch
+                        ? "oklch(0.82 0.06 80 / 0.75)"
+                        : "oklch(0.7 0.04 250 / 0.45)"
+          }
+          strokeWidth={onPath || selected || isStart || isTarget ? 2.6 : active ? 2.1 : 1.6}
+          filter={isOption ? undefined : "url(#node-glow)"}
+        />
 
-          {(isStart || isTarget) && (
-            <text
-              y={-r - 16}
-              textAnchor="middle"
-              className="pathdle-node-tag"
-              fill={isStart ? "var(--accent)" : "var(--target)"}
-              pointerEvents="none"
-            >
-              {isStart ? "START" : "TARGET"}
-            </text>
-          )}
-
+        {body.hasTag && (
           <text
-            y={r + 16}
+            y={-body.h / 2 + 18}
             textAnchor="middle"
-            className={`pathdle-node-label${active || connected || onPath || isStart || isTarget ? " is-active" : ""}`}
-            pointerEvents="none"
+            className="pathdle-node-tag"
+            fill={isStart ? "var(--accent)" : "var(--target)"}
           >
-            {node.title}
+            {isStart ? "START" : "TARGET"}
           </text>
-        </g>
+        )}
+
+        <text
+          textAnchor="middle"
+          className={`pathdle-node-label${onPath || isStart || isTarget || active ? " is-active" : isBranch ? " is-branch" : ""}`}
+        >
+          {body.lines.map((line, i) => (
+            <tspan key={`${line}-${i}`} x={0} y={firstLineY + i * LINE_H}>
+              {line}
+            </tspan>
+          ))}
+        </text>
       </g>
     </g>
   );
 }
 
-export function nodeHitRadius(kind: PuzzleNode["kind"]) {
-  return coreRadius(kind) + 16;
+export function resolveExploration(
+  node: PuzzleNode,
+  onPath: boolean,
+  connected: boolean,
+): NodeExploration {
+  if (node.kind === "start") return "start";
+  if (node.kind === "target") return "target";
+  if (onPath) return "path";
+  if (connected) return "branch";
+  return "option";
 }

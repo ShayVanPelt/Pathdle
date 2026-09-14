@@ -1,6 +1,6 @@
 # Pathdle
 
-Daily Wikipedia graph puzzle. Discover a hidden path from START to TARGET on a full-bleed night-atlas constellation (floating HUD; graph is the hero).
+Daily Wikipedia graph puzzle. Discover a hidden path from START to TARGET on a full-bleed night-void constellation (top instrument HUD; graph is the hero).
 
 ## Status
 
@@ -12,7 +12,7 @@ Local MVP is runnable end-to-end:
 - **Generator** — Neo4j corpus ingest + daily puzzle publish (`apps/generator`)
 - **Graph corpus** — Docker Neo4j (`docker compose up -d`)
 
-See [docs/architecture.md](docs/architecture.md) and [docs/generator.md](docs/generator.md).
+See [docs/architecture.md](docs/architecture.md), [docs/generator.md](docs/generator.md), and [docs/deploy-cloud-run.md](docs/deploy-cloud-run.md).
 
 ## Repo layout
 
@@ -117,12 +117,12 @@ Single monorepo `.env` at repo root (gitignored). See `.env.example` for:
 
 Anonymous browser `player_key` in `localStorage`, sent as `X-Player-Key`. Optional sign-in later.
 
-## Deploy targets (planned)
+## Deploy targets
 
-| App | Host |
-|-----|------|
-| `apps/web` | Vercel |
-| `apps/api` | Google Cloud Run |
-| `apps/generator` | Cloud Run Job + Cloud Scheduler |
-| Postgres | Supabase |
-| Graph corpus | Neo4j AuraDB |
+| App | Host | Status |
+|-----|------|--------|
+| `apps/web` | Vercel | Point `NEXT_PUBLIC_API_BASE_URL` at Cloud Run |
+| `apps/api` | Google Cloud Run | Dockerfiles + scripts in `infra/cloud/` — see [docs/deploy-cloud-run.md](docs/deploy-cloud-run.md) |
+| `apps/generator` | Cloud Run Job + Scheduler | Image ready; schedule later |
+| Postgres | Supabase | Hosted play DB |
+| Graph corpus | Neo4j Docker / Aura later | Generator only |

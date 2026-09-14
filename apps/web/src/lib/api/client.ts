@@ -53,12 +53,23 @@ export function getTodayPuzzle() {
   return apiFetch<PublicPuzzle>("/api/puzzles/today");
 }
 
+const startLocks = new Map<string, Promise<GameState>>();
+
 export function startGame(playerKey: string, puzzleId?: string) {
-  return apiFetch<GameState>("/api/games", {
+  const lockKey = `${playerKey}:${puzzleId ?? "today"}`;
+  const inFlight = startLocks.get(lockKey);
+  if (inFlight) return inFlight;
+
+  const pending = apiFetch<GameState>("/api/games", {
     method: "POST",
     playerKey,
     body: JSON.stringify(puzzleId ? { puzzleId } : {}),
+  }).finally(() => {
+    startLocks.delete(lockKey);
   });
+
+  startLocks.set(lockKey, pending);
+  return pending;
 }
 
 export function getGame(gameId: string, playerKey: string) {
