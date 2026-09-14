@@ -37,11 +37,14 @@ create table player_games (
   status text not null default 'active'
     check (status in ('active', 'completed', 'abandoned')),
   discovered_edges jsonb not null default '[]'::jsonb,
+  -- Visual-only outbound hint edges from reveals (not path until confirmed).
+  hint_edges jsonb not null default '[]'::jsonb,
   attempted_edges jsonb not null default '[]'::jsonb,
   player_path jsonb not null default '[]'::jsonb,
   -- Points spent / connection count for MVP leaderboard sorting.
   score int not null default 0,
   connection_count int not null default 0,
+  -- Article ids whose outbound neighbors have been revealed.
   reveals jsonb not null default '[]'::jsonb,
   started_at timestamptz not null default now(),
   completed_at timestamptz null,

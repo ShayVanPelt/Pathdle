@@ -29,6 +29,17 @@ Pathdle.sln           .NET solution
 
 ## Local development
 
+### Postgres (play DB)
+
+```bash
+docker compose up -d
+```
+
+- Host: `localhost:5432`
+- DB / user / password: `pathdle` / `pathdle` / `pathdle`
+- Schema + seed apply automatically on first container create
+- API Development profile uses `Pathdle:Storage=Postgres`
+
 ### API (playable now)
 
 ```bash
@@ -57,6 +68,8 @@ cd apps/web
 npm install
 npm run dev
 ```
+
+Uses monorepo root `.env` for `NEXT_PUBLIC_*` (see `.env.example`).
 
 ### Generator
 

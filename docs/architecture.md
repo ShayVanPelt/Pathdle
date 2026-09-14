@@ -80,10 +80,15 @@ Puzzle day is **UTC** calendar date.
 
 ## PostgreSQL
 
+Local Docker Compose (`docker compose up -d`) or Supabase.
+
 See `infra/sql/migrations/001_init.sql`.
 
 - `daily_puzzles`: immutable published board + server-only `edges` / `optimal_path`.
-- `player_games`: session progress keyed by `player_key`; nullable `user_id` for later auth.
+- `player_games`: session progress keyed by `player_key`; includes `hint_edges` + `reveals`; nullable `user_id` for later auth.
+- `leaderboard_entries`: optional later.
+
+API Development uses `Pathdle:Storage=Postgres`. Production/default JSON keeps `InMemory` until Cloud Run is configured with `ConnectionStrings__Postgres`.
 
 ## Neo4j
 

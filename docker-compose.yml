@@ -1,0 +1,24 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: pathdle-postgres
+    restart: unless-stopped
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_USER: pathdle
+      POSTGRES_PASSWORD: pathdle
+      POSTGRES_DB: pathdle
+    volumes:
+      - pathdle_pgdata:/var/lib/postgresql/data
+      - ./infra/sql/migrations/001_init.sql:/docker-entrypoint-initdb.d/01_init.sql:ro
+      - ./infra/sql/migrations/002_hint_edges.sql:/docker-entrypoint-initdb.d/02_hint_edges.sql:ro
+      - ./infra/sql/seed/001_seed_puzzle.sql:/docker-entrypoint-initdb.d/03_seed.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U pathdle -d pathdle"]
+      interval: 3s
+      timeout: 5s
+      retries: 20
+
+volumes:
+  pathdle_pgdata:

@@ -3,20 +3,25 @@ using Pathdle.Application.Dtos;
 using Pathdle.Application.Services;
 using Pathdle.Infrastructure;
 
+LoadDotEnv();
+
 var builder = WebApplication.CreateBuilder(args);
 
 builder.Services.AddOpenApi();
 builder.Services.AddApplication();
-builder.Services.AddInfrastructure();
+builder.Services.AddInfrastructure(builder.Configuration);
 builder.Services.AddCors(options =>
 {
+    var origins = builder.Configuration.GetSection("Cors:AllowedOrigins").Get<string[]>()
+        ?? ["http://localhost:3000"];
     options.AddDefaultPolicy(policy =>
-        policy.WithOrigins("http://localhost:3000")
+        policy.WithOrigins(origins)
             .AllowAnyHeader()
             .AllowAnyMethod());
 });
 
 var app = builder.Build();
+var storageMode = Pathdle.Infrastructure.DependencyInjection.GetStorageMode(builder.Configuration);
 
 if (app.Environment.IsDevelopment())
 {
@@ -33,6 +38,7 @@ if (!app.Environment.IsDevelopment())
 app.MapGet("/", () => Results.Ok(new
 {
     service = "Pathdle.Api",
+    storage = storageMode,
     docs = new
     {
         health = "/api/health",
@@ -41,12 +47,34 @@ app.MapGet("/", () => Results.Ok(new
     }
 }));
 
-app.MapGet("/api/health", () => Results.Ok(new
+app.MapGet("/api/health", async (HttpContext ctx, CancellationToken ct) =>
 {
-    status = "ok",
-    service = "Pathdle.Api",
-    storage = "in-memory-seed"
-}));
+    object? db = null;
+    if (string.Equals(storageMode, Pathdle.Infrastructure.DependencyInjection.StoragePostgres, StringComparison.OrdinalIgnoreCase))
+    {
+        try
+        {
+            var dataSource = ctx.RequestServices.GetRequiredService<Npgsql.NpgsqlDataSource>();
+            await using var conn = await dataSource.OpenConnectionAsync(ct);
+            await using var cmd = conn.CreateCommand();
+            cmd.CommandText = "select 1";
+            await cmd.ExecuteScalarAsync(ct);
+            db = "up";
+        }
+        catch (Exception ex)
+        {
+            db = $"down: {ex.Message}";
+        }
+    }
+
+    return Results.Ok(new
+    {
+        status = "ok",
+        service = "Pathdle.Api",
+        storage = storageMode,
+        database = db
+    });
+});
 
 app.MapGet("/api/puzzles/today", async (GameService games, CancellationToken ct) =>
 {
@@ -153,6 +181,31 @@ app.MapPost("/api/games/{gameId:guid}/complete", async (
 });
 
 app.Run();
+
+static void LoadDotEnv()
+{
+    // Single monorepo .env at repo root (folder that contains Pathdle.sln).
+    var dir = new DirectoryInfo(Directory.GetCurrentDirectory());
+    for (var i = 0; i < 10 && dir is not null; i++)
+    {
+        var sln = Path.Combine(dir.FullName, "Pathdle.sln");
+        var envPath = Path.Combine(dir.FullName, ".env");
+        if (File.Exists(sln) && File.Exists(envPath))
+        {
+            DotNetEnv.Env.Load(envPath);
+            return;
+        }
+
+        dir = dir.Parent;
+    }
+
+    // Fallback: .env next to cwd (e.g. if opened only on the Api project).
+    var local = Path.Combine(Directory.GetCurrentDirectory(), ".env");
+    if (File.Exists(local))
+    {
+        DotNetEnv.Env.Load(local);
+    }
+}
 
 static string RequirePlayerKey(HttpRequest request)
 {

@@ -31,7 +31,17 @@ ASP.NET Core minimal APIs, C#. Projects: `Pathdle.Api`, `Pathdle.Application`, `
 ## Local
 
 ```bash
+# 1) Copy root env and set Supabase (or Docker) connection
+cp .env.example .env
+# edit .env → ConnectionStrings__Postgres password
+
+# 2) Optional local Postgres
+docker compose up -d
+
+# 3) API
 dotnet run --project apps/api/Pathdle.Api --launch-profile http
 ```
 
 → `http://localhost:5294`
+
+One monorepo `.env` at the repo root (gitignored). Do not put secrets in `apps/api/Pathdle.Api/.env`.
