@@ -1,0 +1,38 @@
+@Pathdle.Api = http://localhost:5294
+@PlayerKey = test-player-001
+
+### Health
+GET {{Pathdle.Api}}/api/health
+Accept: application/json
+
+### Today's puzzle (no edges)
+GET {{Pathdle.Api}}/api/puzzles/today
+Accept: application/json
+
+### Start game
+POST {{Pathdle.Api}}/api/games
+X-Player-Key: {{PlayerKey}}
+Content-Type: application/json
+
+{}
+
+### Attempt valid: Einstein -> Physics
+# Replace {gameId} after starting a game
+POST {{Pathdle.Api}}/api/games/{{gameId}}/attempts
+X-Player-Key: {{PlayerKey}}
+Content-Type: application/json
+
+{
+  "fromId": "Albert_Einstein",
+  "toId": "Physics"
+}
+
+### Attempt invalid: Physics -> Albert_Einstein (directed)
+POST {{Pathdle.Api}}/api/games/{{gameId}}/attempts
+X-Player-Key: {{PlayerKey}}
+Content-Type: application/json
+
+{
+  "fromId": "Physics",
+  "toId": "Albert_Einstein"
+}

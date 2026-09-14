@@ -1,0 +1,404 @@
+@import "tailwindcss";
+
+:root {
+  /* Night atlas — deep navy field, warm amber lamp, cool target */
+  --field: oklch(0.12 0.028 250);
+  --field-mid: oklch(0.16 0.035 252);
+  --field-glow: oklch(0.22 0.04 248);
+  --ink-bright: oklch(0.94 0.018 85);
+  --ink-muted: oklch(0.68 0.025 85);
+  --ink-dim: oklch(0.52 0.02 85);
+  --accent: oklch(0.8 0.11 72);
+  --accent-soft: oklch(0.78 0.1 72 / 0.45);
+  --hint: oklch(0.7 0.1 195);
+  --target: oklch(0.74 0.09 205);
+  --fail: oklch(0.7 0.15 35);
+  --node-core: oklch(0.82 0.03 85);
+  --node-connected: oklch(0.88 0.05 80);
+  --hud-glass: oklch(0.14 0.03 250 / 0.55);
+  --hud-border: oklch(0.65 0.03 85 / 0.18);
+  --background: var(--field);
+  --foreground: var(--ink-bright);
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: var(--font-ui);
+  --font-display: var(--font-display);
+}
+
+body {
+  background: var(--field);
+  color: var(--ink-bright);
+  font-family: var(--font-ui), Georgia, serif;
+}
+
+/* ——— Atmosphere ——— */
+
+.pathdle-atmosphere {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  overflow: hidden;
+  background:
+    radial-gradient(
+      ellipse 80% 60% at 50% 42%,
+      var(--field-glow) 0%,
+      var(--field-mid) 42%,
+      var(--field) 78%
+    ),
+    var(--field);
+}
+
+.pathdle-atmosphere::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  opacity: 0.35;
+  background-image: radial-gradient(
+    circle at center,
+    oklch(0.9 0.02 85 / 0.55) 0.6px,
+    transparent 0.7px
+  );
+  background-size:
+    97px 113px,
+    131px 89px,
+    167px 141px;
+  background-position:
+    12% 18%,
+    61% 44%,
+    28% 72%;
+  /* three sparse layers via multiple backgrounds */
+  background-image:
+    radial-gradient(circle, oklch(0.9 0.02 85 / 0.35) 0.55px, transparent 0.65px),
+    radial-gradient(circle, oklch(0.88 0.02 85 / 0.22) 0.45px, transparent 0.55px),
+    radial-gradient(circle, oklch(0.92 0.015 85 / 0.18) 0.4px, transparent 0.5px);
+  background-size:
+    110px 130px,
+    170px 150px,
+    230px 190px;
+}
+
+.pathdle-atmosphere::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  opacity: 0.04;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  background-size: 180px 180px;
+  mix-blend-mode: soft-light;
+}
+
+/* ——— Typography ——— */
+
+.pathdle-node-label {
+  font-family: var(--font-ui), system-ui, sans-serif;
+  font-size: 10.5px;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+  fill: oklch(0.78 0.02 85 / 0.72);
+  transition:
+    fill 0.25s ease,
+    opacity 0.25s ease;
+}
+
+.pathdle-node-label.is-active {
+  fill: oklch(0.94 0.02 85 / 0.95);
+}
+
+.pathdle-node-tag {
+  font-family: var(--font-ui), system-ui, sans-serif;
+  font-size: 8.5px;
+  font-weight: 600;
+  letter-spacing: 0.2em;
+}
+
+/* ——— Nodes ——— */
+
+.pathdle-node-visual {
+  transform-box: fill-box;
+  transform-origin: center;
+  transition: transform 0.28s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.pathdle-node-visual.is-hover {
+  transform: scale(1.12);
+}
+
+.pathdle-node-float {
+  animation: pathdle-float var(--float-dur, 11s) ease-in-out infinite;
+  animation-delay: var(--float-delay, 0s);
+}
+
+.pathdle-node-halo {
+  animation: pathdle-halo-breathe 5.5s ease-in-out infinite;
+  animation-delay: var(--float-delay, 0s);
+}
+
+.pathdle-node-ring {
+  animation: pathdle-ring-spin 14s linear infinite;
+  transform-origin: center;
+  transform-box: fill-box;
+}
+
+.pathdle-node-target-pulse {
+  animation: pathdle-target-breathe 3.8s ease-in-out infinite;
+}
+
+.pathdle-node-connect-flash {
+  animation: pathdle-connect-flash 0.55s ease-out;
+}
+
+/* ——— Edges ——— */
+
+.pathdle-edge-in {
+  stroke-dasharray: 12 1400;
+  stroke-dashoffset: 1400;
+  animation: pathdle-draw 0.55s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+}
+
+.pathdle-edge-settled {
+  opacity: 0.85;
+}
+
+.pathdle-edge-flow {
+  stroke-dasharray: 4 18;
+  animation: pathdle-edge-drift 8s linear infinite;
+  opacity: 0.22;
+}
+
+.pathdle-edge-fail {
+  animation: pathdle-fail 0.55s ease forwards;
+}
+
+.pathdle-fail-ring {
+  stroke-width: 1.5;
+  animation: pathdle-fail-ring 0.55s ease forwards;
+}
+
+.pathdle-fail-label {
+  font-family: var(--font-display), Georgia, serif;
+  font-size: 18px;
+  font-weight: 600;
+  animation: pathdle-fail-label 0.55s ease forwards;
+}
+
+.pathdle-hint-edge {
+  opacity: 0.7;
+  animation: pathdle-hint-in 0.4s ease forwards;
+}
+
+.pathdle-drag-line {
+  filter: drop-shadow(0 0 3px oklch(0.8 0.1 72 / 0.55));
+}
+
+.pathdle-neighbor-pulse {
+  animation: pathdle-neighbor 1.8s ease-in-out infinite;
+}
+
+/* ——— HUD ——— */
+
+.pathdle-hud-chip {
+  background: var(--hud-glass);
+  border: 1px solid var(--hud-border);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+}
+
+.pathdle-score-value {
+  font-variant-numeric: tabular-nums;
+  transition: color 0.2s ease;
+}
+
+.pathdle-score-value.is-bump {
+  animation: pathdle-score-bump 0.45s cubic-bezier(0.22, 1, 0.36, 1);
+  color: var(--accent);
+}
+
+.pathdle-feedback {
+  animation: pathdle-feedback-in 0.3s ease;
+}
+
+/* ——— Keyframes ——— */
+
+@keyframes pathdle-float {
+  0%,
+  100% {
+    transform: translate(0, 0);
+  }
+  30% {
+    transform: translate(1.6px, -1.2px);
+  }
+  65% {
+    transform: translate(-1.2px, 1px);
+  }
+}
+
+@keyframes pathdle-halo-breathe {
+  0%,
+  100% {
+    opacity: 0.28;
+  }
+  50% {
+    opacity: 0.48;
+  }
+}
+
+@keyframes pathdle-ring-spin {
+  to {
+    stroke-dashoffset: -48;
+  }
+}
+
+@keyframes pathdle-target-breathe {
+  0%,
+  100% {
+    opacity: 0.3;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.55;
+    transform: scale(1.06);
+  }
+}
+
+@keyframes pathdle-connect-flash {
+  0% {
+    opacity: 0.9;
+    transform: scale(1.35);
+  }
+  100% {
+    opacity: 0;
+    transform: scale(1.9);
+  }
+}
+
+@keyframes pathdle-draw {
+  0% {
+    stroke-dashoffset: 1400;
+    opacity: 1;
+  }
+  70% {
+    opacity: 1;
+  }
+  100% {
+    stroke-dashoffset: 0;
+    opacity: 0.9;
+  }
+}
+
+@keyframes pathdle-edge-drift {
+  to {
+    stroke-dashoffset: -88;
+  }
+}
+
+@keyframes pathdle-fail {
+  0% {
+    opacity: 0.95;
+  }
+  55% {
+    opacity: 0.7;
+  }
+  100% {
+    opacity: 0;
+  }
+}
+
+@keyframes pathdle-fail-ring {
+  0% {
+    opacity: 0.7;
+    r: 8;
+  }
+  100% {
+    opacity: 0;
+    r: 26;
+  }
+}
+
+@keyframes pathdle-fail-label {
+  0% {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  30% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+  100% {
+    opacity: 0;
+    transform: translateY(-12px);
+  }
+}
+
+@keyframes pathdle-hint-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 0.7;
+  }
+}
+
+@keyframes pathdle-neighbor {
+  0%,
+  100% {
+    opacity: 0.35;
+  }
+  50% {
+    opacity: 0.85;
+  }
+}
+
+@keyframes pathdle-score-bump {
+  0% {
+    transform: scale(1);
+  }
+  35% {
+    transform: scale(1.08);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+
+@keyframes pathdle-feedback-in {
+  from {
+    opacity: 0;
+    transform: translate(-50%, 6px);
+  }
+  to {
+    opacity: 1;
+    transform: translate(-50%, 0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pathdle-node-float,
+  .pathdle-node-halo,
+  .pathdle-node-ring,
+  .pathdle-node-target-pulse,
+  .pathdle-node-connect-flash,
+  .pathdle-edge-in,
+  .pathdle-edge-flow,
+  .pathdle-edge-fail,
+  .pathdle-fail-ring,
+  .pathdle-fail-label,
+  .pathdle-hint-edge,
+  .pathdle-neighbor-pulse,
+  .pathdle-score-value.is-bump,
+  .pathdle-feedback {
+    animation: none !important;
+  }
+
+  .pathdle-edge-in {
+    stroke-dasharray: none;
+    stroke-dashoffset: 0;
+    opacity: 0.9;
+  }
+
+  .pathdle-node-visual.is-hover {
+    transform: none;
+  }
+}
