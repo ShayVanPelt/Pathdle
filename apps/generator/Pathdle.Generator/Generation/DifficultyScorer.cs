@@ -32,6 +32,8 @@ internal static class DifficultyScorer
         var trapEdges = board.TrapEdgeCount;
 
         // Higher score = harder (still a cost metaphor for design banding).
+        // Alt-shortest counts explode on mid-degree TARGETs; cap the penalty.
+        var altPenalty = Math.Min(24, Math.Max(0, p.AltShortestCount - 1) * 6);
         var score =
             20
             + p.OptimalLength * 8
@@ -39,7 +41,7 @@ internal static class DifficultyScorer
             + Math.Min(20, trapNodes / 2)
             + Math.Min(12, trapEdges / 4)
             + (int)(p.HubPenalty * 10)
-            - Math.Max(0, p.AltShortestCount - 1) * 6;
+            - altPenalty;
 
         score = Math.Clamp(score, 0, 100);
         var band = score switch

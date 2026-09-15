@@ -37,8 +37,11 @@ static int PrintHelp()
         Pathdle.Generator
 
           ingest-corpus [--max-articles=8000] [--seeds=path]
+                        [--scout-pages=6] [--induce-pages=0]
           generate-daily [--date=YYYY-MM-DD] [--today] [--dry-run]
           diagnose-links [--title=Albert_Einstein] [--expect=Physics]
+
+        induce-pages=0 means unlimited MediaWiki pagination (keep-filtered early-stop still applies).
 
         Env (root .env): Neo4j__*, ConnectionStrings__Postgres, Pathdle__CorpusVersion
         """);
@@ -55,6 +58,8 @@ static int Unknown(string command)
 static async Task<int> IngestAsync(IConfiguration config, string[] args)
 {
     var maxArticles = GetIntArg(args, "--max-articles", 8000);
+    var scoutPages = GetIntArg(args, "--scout-pages", 6);
+    var inducePages = GetIntArg(args, "--induce-pages", 0);
     var seedsArg = GetStringArg(args, "--seeds");
     var corpusVersion = config["Pathdle:CorpusVersion"] ?? "wiki-crawl-mvp-v1";
     var root = EnvBootstrap.FindRepoRoot();
@@ -69,7 +74,13 @@ static async Task<int> IngestAsync(IConfiguration config, string[] args)
     await using var store = CreateNeo4j(config);
     using var wiki = new MediaWikiClient();
     var ingestor = new CorpusIngestor(wiki, store);
-    await ingestor.IngestAsync(seedsPath, corpusVersion, maxArticles, CancellationToken.None);
+    await ingestor.IngestAsync(
+        seedsPath,
+        corpusVersion,
+        maxArticles,
+        CancellationToken.None,
+        scoutPages,
+        inducePages);
     return 0;
 }
 
@@ -78,8 +89,9 @@ static async Task<int> GenerateAsync(IConfiguration config, string[] args)
     var today = args.Any(a => a is "--today");
     var dryRun = args.Any(a => a is "--dry-run");
     var dateArg = GetStringArg(args, "--date");
-    var puzzleDate = dateArg is not null
-        ? DateOnly.Parse(dateArg)
+    var pinnedDate = dateArg is not null;
+    var floorDate = pinnedDate
+        ? DateOnly.Parse(dateArg!)
         : today
             ? DateOnly.FromDateTime(DateTime.UtcNow)
             : DateOnly.FromDateTime(DateTime.UtcNow.AddDays(1));
@@ -87,6 +99,23 @@ static async Task<int> GenerateAsync(IConfiguration config, string[] args)
     var corpusVersion = config["Pathdle:CorpusVersion"] ?? "wiki-crawl-mvp-v1";
     var pg = config.GetConnectionString("Postgres")
         ?? throw new InvalidOperationException("ConnectionStrings:Postgres is required.");
+
+    DateOnly puzzleDate;
+    if (pinnedDate)
+    {
+        puzzleDate = floorDate;
+    }
+    else
+    {
+        puzzleDate = await PuzzlePublisher.FindNextFreeDateAsync(pg, floorDate, CancellationToken.None);
+        if (puzzleDate != floorDate)
+        {
+            Console.WriteLine(
+                $"Next free date: {puzzleDate:yyyy-MM-dd} (floor was {floorDate:yyyy-MM-dd}).");
+        }
+    }
+
+    var runNonce = Guid.NewGuid().ToString("N")[..12];
 
     await using var store = CreateNeo4j(config);
     var meta = await store.GetLatestMetaAsync(CancellationToken.None);
@@ -97,13 +126,15 @@ static async Task<int> GenerateAsync(IConfiguration config, string[] args)
 
     Console.WriteLine(
         $"Corpus {meta.Value.Version}: {meta.Value.Articles} articles, {meta.Value.Edges} edges");
-    Console.WriteLine($"Generating for {puzzleDate:yyyy-MM-dd} (corpusVersion={corpusVersion})…");
+    Console.WriteLine(
+        $"Generating for {puzzleDate:yyyy-MM-dd} (corpusVersion={corpusVersion}, seed={runNonce})…");
 
     var graph = await store.LoadGraphAsync(CancellationToken.None);
-    var generated = PuzzleGenerator.Generate(graph, puzzleDate, corpusVersion);
+    var generated = PuzzleGenerator.Generate(graph, puzzleDate, corpusVersion, runNonce);
 
     Console.WriteLine(
-        $"Board: {generated.Puzzle.Nodes.Count} nodes, {generated.Puzzle.Edges.Count} edges, "
+        $"Board: {generated.Puzzle.StartArticleId} → {generated.Puzzle.TargetArticleId}, "
+        + $"{generated.Puzzle.Nodes.Count} nodes, {generated.Puzzle.Edges.Count} edges, "
         + $"optimal={generated.Puzzle.OptimalLength}, difficulty={generated.Difficulty.Score}");
 
     if (dryRun)

@@ -16,6 +16,9 @@ internal sealed class GenerationOptions
     public int MaxAltShortest { get; init; } = 4;
     public int MinOutDegreeStart { get; init; } = 2;
     public int MaxOutDegreeStart { get; init; } = 140;
+    public int MinInDegreeTarget { get; init; } = 15;
+    public int MaxInDegreeTarget { get; init; } = 400;
+    public int MinOutDegreeTarget { get; init; } = 2;
     public int TrapDepth { get; init; } = 2;
     public int TrapsPerMidNode { get; init; } = 3;
 }
@@ -38,9 +41,10 @@ internal sealed record BuiltBoard(
 
 internal static class SeededRng
 {
-    public static Random From(string puzzleDate, string corpusVersion)
+    public static Random From(string puzzleDate, string corpusVersion, string runNonce)
     {
-        var bytes = SHA256.HashData(Encoding.UTF8.GetBytes($"{puzzleDate}|{corpusVersion}"));
+        var bytes = SHA256.HashData(
+            Encoding.UTF8.GetBytes($"{puzzleDate}|{corpusVersion}|{runNonce}"));
         var seed = BitConverter.ToInt32(bytes, 0);
         return new Random(seed);
     }
@@ -107,7 +111,11 @@ internal static class GraphAlgorithms
         return null;
     }
 
-    public static int CountShortestPaths(CorpusGraph graph, string start, string target)
+    public static int CountShortestPaths(
+        CorpusGraph graph,
+        string start,
+        string target,
+        int maxWays = int.MaxValue)
     {
         var dist = new Dictionary<string, int>(StringComparer.Ordinal) { [start] = 0 };
         var ways = new Dictionary<string, int>(StringComparer.Ordinal) { [start] = 1 };
@@ -129,6 +137,11 @@ internal static class GraphAlgorithms
                 else if (dist[v] == du + 1)
                 {
                     ways[v] += ways[u];
+                }
+
+                if (v == target && ways[v] > maxWays)
+                {
+                    return ways[v];
                 }
             }
         }

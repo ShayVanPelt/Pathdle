@@ -10,12 +10,13 @@ Uses Neo4j for graph analysis; writes immutable rows to Postgres.
 ```bash
 # Neo4j must be up: docker compose up -d neo4j
 dotnet run --project apps/generator/Pathdle.Generator -- ingest-corpus --max-articles=8000
+dotnet run --project apps/generator/Pathdle.Generator -- ingest-corpus --max-articles=1200 --scout-pages=6 --induce-pages=0
 dotnet run --project apps/generator/Pathdle.Generator -- generate-daily --today
 dotnet run --project apps/generator/Pathdle.Generator -- generate-daily --dry-run
 dotnet run --project apps/generator/Pathdle.Generator -- diagnose-links --title=Albert_Einstein --expect=Physics
 ```
 
-Default `generate-daily` date = **tomorrow UTC**. Use `--today` for local testing. Local corpus ingest often uses `--max-articles=1200` (full cap 8000).
+Default `generate-daily` date = **tomorrow UTC**, advancing to the next free `puzzle_date` if that slot is taken. Use `--today` for local testing. Each run uses a unique 12-char seed nonce (logged as `seed=…`); `--date=YYYY-MM-DD` pins the calendar day for scheduled jobs. Local corpus ingest often uses `--max-articles=1200` (full cap 8000). Ingest defaults: `--scout-pages=6`, `--induce-pages=0` (unlimited keep-filtered). Watch the canary `MISS` lines after ingest.
 
 Cloud Run Job image: `apps/generator/Dockerfile` — see `docs/deploy-cloud-run.md`.
 

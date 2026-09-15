@@ -13,11 +13,12 @@ internal static class PuzzleGenerator
         CorpusGraph graph,
         DateOnly puzzleDate,
         string corpusVersion,
+        string runNonce,
         GenerationOptions? options = null)
     {
         var opt = options ?? new GenerationOptions();
-        var rng = SeededRng.From(puzzleDate.ToString("yyyy-MM-dd"), corpusVersion);
-        var generatorSeed = $"{puzzleDate:yyyy-MM-dd}:{corpusVersion}";
+        var rng = SeededRng.From(puzzleDate.ToString("yyyy-MM-dd"), corpusVersion, runNonce);
+        var generatorSeed = $"{puzzleDate:yyyy-MM-dd}:{corpusVersion}:{runNonce}";
 
         var rejectNullPath = 0;
         var rejectScore = 0;

@@ -4,11 +4,31 @@ internal sealed class CorpusIngestor(
     MediaWikiClient wiki,
     Neo4jCorpusStore store)
 {
+    /// <summary>
+    /// High-signal edges that should survive ingest when both endpoints are kept.
+    /// Used as a post-write fidelity report (Wikipedia has it → Neo4j must too).
+    /// </summary>
+    private static readonly (string From, string To)[] CanaryEdges =
+    [
+        ("Albert_Einstein", "Physics"),
+        ("Albert_Einstein", "Relativity"),
+        ("Physics", "Mathematics"),
+        ("Mathematics", "Geometry"),
+        ("Nintendo", "Video_game"),
+        ("Japan", "Tokyo"),
+        ("United_States", "Washington,_D.C."),
+        ("World_War_II", "Germany"),
+        ("Computer_science", "Algorithm"),
+        ("Biology", "DNA"),
+    ];
+
     public async Task IngestAsync(
         string seedsPath,
         string corpusVersion,
         int maxArticles,
-        CancellationToken ct)
+        CancellationToken ct,
+        int scoutPages = 6,
+        int inducePages = 0)
     {
         var seeds = (await File.ReadAllLinesAsync(seedsPath, ct))
             .Select(l => l.Trim())
@@ -22,6 +42,8 @@ internal sealed class CorpusIngestor(
 
         Console.WriteLine(
             $"Building induced corpus from {seeds.Count} curated seeds (max={maxArticles}).");
+        Console.WriteLine(
+            $"  scoutPages={scoutPages}×500, inducePages={(inducePages <= 0 ? "unlimited" : $"{inducePages}×500")}.");
 
         await store.EnsureSchemaAsync(ct);
         await store.ClearCorpusAsync(ct);
@@ -34,9 +56,8 @@ internal sealed class CorpusIngestor(
         var seedSet = titles.Keys.ToHashSet(StringComparer.Ordinal);
         var scoutLinks = new Dictionary<string, List<string>>(StringComparer.Ordinal);
 
-        // Scout pass: enough pages to catch mid-alphabet neighbors (Physics is ~page 2
-        // on Einstein). These intersections seed the edge map before the induce pass.
-        const int scoutPages = 2;
+        // Scout pass: deep enough to catch mid-alphabet neighbors for expansions
+        // (Physics is ~page 2 on Einstein; denser scout → better keep set).
         Console.WriteLine($"Scouting outbound links for seeds (up to {scoutPages}×500 each)…");
         foreach (var chunk in seeds.Chunk(8))
         {
@@ -99,10 +120,11 @@ internal sealed class CorpusIngestor(
             }
         }
 
-        // Induce pass: fuller pagination for every kept article, retain only keep→keep edges.
-        const int inducePages = 20;
+        // Induce pass: paginate every kept article; retain only keep→keep edges.
+        // inducePages=0 → unlimited (alphabetical early-stop still applies with keep filter).
+        var induceLabel = inducePages <= 0 ? "unlimited" : $"{inducePages}×500";
         Console.WriteLine(
-            $"Inducing keep→keep edges for {keep.Count} articles (up to {inducePages}×500 each)…");
+            $"Inducing keep→keep edges for {keep.Count} articles ({induceLabel} each)…");
         var failed = new List<string>();
         var done = 0;
         foreach (var chunk in keep.OrderBy(x => x, StringComparer.Ordinal).Chunk(8))
@@ -129,8 +151,7 @@ internal sealed class CorpusIngestor(
             await Task.Delay(150, ct);
         }
 
-        // Retry empties / failures serially (much gentler on MediaWiki).
-        // Prefer curated seeds first — they matter most for canaries like Einstein→Physics.
+        // Retry every empty / failed article (seeds first — they matter most for canaries).
         var retryIds = allLinks
             .Where(kv => kv.Value.Count == 0)
             .Select(kv => kv.Key)
@@ -138,7 +159,6 @@ internal sealed class CorpusIngestor(
             .Distinct(StringComparer.Ordinal)
             .OrderBy(id => seedSet.Contains(id) ? 0 : 1)
             .ThenBy(x => x, StringComparer.Ordinal)
-            .Take(200)
             .ToList();
 
         if (retryIds.Count > 0)
@@ -185,9 +205,7 @@ internal sealed class CorpusIngestor(
             $"Writing {titles.Count} articles, {internalEdges.Count} edges to Neo4j "
             + $"(articles with outbound={withOut}, zeroOutbound={zeroOut})…");
 
-        // Sanity canaries
-        var einsteinPhysics = internalEdges.Contains(("Albert_Einstein", "Physics"));
-        Console.WriteLine($"  canary Albert_Einstein→Physics: {(einsteinPhysics ? "OK" : "MISSING")}");
+        ReportCanaries(keep, internalEdges);
 
         if (internalEdges.Count < titles.Count * 2)
         {
@@ -198,6 +216,46 @@ internal sealed class CorpusIngestor(
         await store.UpsertArticlesAndEdgesAsync(titles, internalEdges, ct);
         await store.WriteCorpusMetaAsync(corpusVersion, titles.Count, internalEdges.Count, ct);
         Console.WriteLine($"Corpus '{corpusVersion}' ready.");
+    }
+
+    private static void ReportCanaries(
+        HashSet<string> keep,
+        HashSet<(string From, string To)> edges)
+    {
+        Console.WriteLine("Canary edges (both endpoints must be in keep set):");
+        var ok = 0;
+        var missing = 0;
+        var skipped = 0;
+
+        foreach (var (from, to) in CanaryEdges)
+        {
+            var fromKept = keep.Contains(from);
+            var toKept = keep.Contains(to);
+            if (!fromKept || !toKept)
+            {
+                skipped++;
+                var missingEnds = new List<string>();
+                if (!fromKept) missingEnds.Add(from);
+                if (!toKept) missingEnds.Add(to);
+                Console.WriteLine(
+                    $"  SKIP  {from}→{to} (not in keep: {string.Join(", ", missingEnds)})");
+                continue;
+            }
+
+            if (edges.Contains((from, to)))
+            {
+                ok++;
+                Console.WriteLine($"  OK    {from}→{to}");
+            }
+            else
+            {
+                missing++;
+                Console.WriteLine($"  MISS  {from}→{to}  ← Wikipedia-class link absent from Neo4j");
+            }
+        }
+
+        Console.WriteLine(
+            $"  canary summary: ok={ok}, miss={missing}, skip={skipped} (miss = wiki fidelity gap)");
     }
 
     private static bool IsJunkArticle(string id) =>

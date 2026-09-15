@@ -27,14 +27,15 @@ dotnet run --project apps/generator/Pathdle.Generator -- diagnose-links [--title
 
 ## Path selection
 
-1. Seed RNG with `hash(puzzle_date + corpus_version)` (stable for a given day/corpus).
+1. Seed RNG with `hash(puzzle_date + corpus_version + run_nonce)` — each generate run gets a fresh nonce; `--date=` pins the calendar day for scheduled jobs.
+2. Without `--date=`, pick the earliest free `puzzle_date` on or after the floor (`--today` → today UTC, default → tomorrow UTC).
 2. Candidate START: mid out-degree / mid in-degree (not mega-hubs, not stubs).
-3. BFS from START; collect nodes at distance 4, 5, or 6; sample TARGET.
+3. BFS from START; collect nodes at distance 4, 5, or 6 whose **TARGET** sits in a mid in-degree band (about 15–400 in, ≥2 out) so leafy sinks are excluded; gather up to ~24 valid paths and RNG-pick one (not first-hit).
 4. Accept only if:
    - shortest length ∈ [4, 6]
-   - few alternate shortest paths (prefer unique or ≤ 3)
    - mid-path nodes have outbound branches usable as traps
    - path is not dominated by extreme hubs
+   - among collected candidates, prefer lower alternate-shortest-path counts (mid-degree TARGETs are denser than leaf sinks)
 5. On reject, resample (hard attempt cap).
 
 ## Red herrings (mid-path traps)
@@ -78,6 +79,8 @@ Positions in `[0,1]²`, not runtime force-directed:
 ## Corpus (Neo4j)
 
 Ingest builds an **induced subgraph** from curated seeds (`apps/generator/data/seed_articles.txt`) plus high-overlap 1-hop expansions.
+
+Defaults favor fidelity over speed: scout ≈6×500 pages/seed, induce unlimited keep-filtered pagination (`--induce-pages=0`), retry **all** empty outbound fetches, then print a canary edge report (`OK` / `MISS` / `SKIP`). A `MISS` means both endpoints were kept but the Wikipedia-class link never landed in Neo4j.
 
 Pipeline:
 
