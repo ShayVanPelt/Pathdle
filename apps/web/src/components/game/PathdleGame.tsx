@@ -9,6 +9,7 @@ import {
   startGame,
 } from "@/lib/api/client";
 import type { CompleteResponse, GameState } from "@/lib/api/types";
+import { chartedNodeIds } from "@/lib/game/charted";
 import { getOrCreatePlayerKey } from "@/lib/playerKey";
 import { FieldAtmosphere } from "./FieldAtmosphere";
 import { GameBoard } from "./GameBoard";
@@ -88,6 +89,10 @@ export function PathdleGame() {
   const onAttempt = useCallback(
     async (fromId: string, toId: string) => {
       if (!game || !playerKey || game.status !== "active") return false;
+      if (!chartedNodeIds(game.startArticleId, game.discoveredEdges).has(fromId)) {
+        showFeedback("Chart a path to this star before exploring from it.");
+        return false;
+      }
 
       try {
         const response = await attemptConnection(
@@ -123,6 +128,11 @@ export function PathdleGame() {
   const onRevealRequest = useCallback(
     async (articleId: string) => {
       if (!game || !playerKey || game.status !== "active") return;
+      if (!chartedNodeIds(game.startArticleId, game.discoveredEdges).has(articleId)) {
+        showFeedback("Chart a path to this star before exploring from it.");
+        return;
+      }
+
       try {
         const response = await revealOutbound(game.gameId, playerKey, articleId);
         setGame((prev) =>

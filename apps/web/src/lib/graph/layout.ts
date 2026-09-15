@@ -26,7 +26,10 @@ const PAD_Y = 14;
 const TAG_H = 16;
 const MAX_LINE_CHARS = 15;
 const MAX_LINES = 3;
-const GAP = 30;
+/** Minimum clear space between pill edges (display-only). */
+const GAP = 18;
+const SEPARATION_ITERS = 160;
+const SEPARATION_STRENGTH = 0.55;
 
 export function wrapTitle(
   title: string,
@@ -128,21 +131,109 @@ function wrapAngle(a: number) {
   return ((a % tau) + tau) % tau;
 }
 
-type Polar = { id: string; angle: number; radius: number };
+type Polar = { id: string; angle: number; preferR: number };
+
+function overlaps(a: Rect, b: Rect, gap: number) {
+  return (
+    a.x < b.x + b.w + gap &&
+    a.x + a.w + gap > b.x &&
+    a.y < b.y + b.h + gap &&
+    a.y + a.h + gap > b.y
+  );
+}
+
+function layoutBounds(
+  ids: string[],
+  bodies: Map<string, NodeBody>,
+  positions: Map<string, Point>,
+) {
+  let minX = Infinity;
+  let minY = Infinity;
+  let maxX = -Infinity;
+  let maxY = -Infinity;
+
+  for (const id of ids) {
+    const body = bodies.get(id)!;
+    const point = positions.get(id)!;
+    minX = Math.min(minX, point.x - body.w / 2);
+    minY = Math.min(minY, point.y - body.h / 2);
+    maxX = Math.max(maxX, point.x + body.w / 2);
+    maxY = Math.max(maxY, point.y + body.h / 2);
+  }
+
+  return {
+    minX,
+    minY,
+    maxX,
+    maxY,
+    width: maxX - minX,
+    height: maxY - minY,
+  };
+}
 
 /**
- * Display-only: keep each node's API direction, flatten onto a wide ring,
- * then space around the circle so pills do not clump.
+ * Expand only the shorter axis to make the pill envelope circular. Expansion
+ * cannot introduce collisions because center-to-center separation only grows.
+ */
+function circularizeLayout(
+  ids: string[],
+  bodies: Map<string, NodeBody>,
+  positions: Map<string, Point>,
+  worldCx: number,
+  worldCy: number,
+) {
+  if (ids.length === 0) return;
+
+  const bounds = layoutBounds(ids, bodies, positions);
+  const layoutCx = (bounds.minX + bounds.maxX) / 2;
+  const layoutCy = (bounds.minY + bounds.maxY) / 2;
+
+  if (bounds.width < bounds.height) {
+    const scaleX = Math.min(1.3, bounds.height / Math.max(1, bounds.width));
+    for (const id of ids) {
+      const point = positions.get(id)!;
+      positions.set(id, {
+        x: layoutCx + (point.x - layoutCx) * scaleX,
+        y: point.y,
+      });
+    }
+  } else if (bounds.height < bounds.width) {
+    const scaleY = Math.min(1.3, bounds.width / Math.max(1, bounds.height));
+    for (const id of ids) {
+      const point = positions.get(id)!;
+      positions.set(id, {
+        x: point.x,
+        y: layoutCy + (point.y - layoutCy) * scaleY,
+      });
+    }
+  }
+
+  const circularBounds = layoutBounds(ids, bodies, positions);
+  const offsetX = worldCx - (circularBounds.minX + circularBounds.maxX) / 2;
+  const offsetY = worldCy - (circularBounds.minY + circularBounds.maxY) / 2;
+  for (const id of ids) {
+    const point = positions.get(id)!;
+    positions.set(id, {
+      x: point.x + offsetX,
+      y: point.y + offsetY,
+    });
+  }
+}
+
+/**
+ * Display-only: keep each node's API direction, pack into a filled disk,
+ * then separate AABB pills until none touch.
  */
 export function spreadDisplayPositions(
   nodes: PuzzleNode[],
   apiPositions: Map<string, Point>,
   _startId?: string,
-  world = 1000,
+  world = 1400,
 ): Map<string, Point> {
   const bodies = new Map(nodes.map((n) => [n.id, nodeBody(n)]));
   const cx = world / 2;
   const cy = world / 2 + 12;
+  const n = Math.max(1, nodes.length);
 
   let gx = 0;
   let gy = 0;
@@ -151,8 +242,8 @@ export function spreadDisplayPositions(
     gx += p.x;
     gy += p.y;
   }
-  gx /= Math.max(1, nodes.length);
-  gy /= Math.max(1, nodes.length);
+  gx /= n;
+  gy /= n;
 
   let maxDist = 1;
   for (const node of nodes) {
@@ -160,8 +251,10 @@ export function spreadDisplayPositions(
     maxDist = Math.max(maxDist, Math.hypot(p.x - gx, p.y - gy));
   }
 
-  const ring = Math.min(world * 0.34, 340);
-  const ringRadius = [ring * 0.48, ring * 0.92, ring * 1.26];
+  // Sized so ~60 pills with gaps still fit a filled circle inside the world.
+  const disk = Math.min(world * 0.42, 420);
+  const innerR = disk * 0.12;
+  const outerR = disk * 1.18;
 
   const polars: Polar[] = nodes.map((node) => {
     const p = apiPositions.get(node.id)!;
@@ -169,67 +262,45 @@ export function spreadDisplayPositions(
     const dy = p.y - gy;
     const dist = Math.hypot(dx, dy);
     const angle = dist < 2 ? hashAngle(node.id) : Math.atan2(dy, dx);
-    const t = dist / maxDist;
-    let band = t < 0.38 ? 0 : t < 0.7 ? 1 : 2;
-    if (node.kind === "start") band = 0;
-    if (node.kind === "target") band = 2;
-    let radius = ringRadius[band];
-    if (node.kind === "start") radius = ring * 0.32;
-    return {
-      id: node.id,
-      angle: wrapAngle(angle),
-      radius,
-    };
+    // Sqrt map → denser fill toward the rim while keeping a filled disk.
+    const t = Math.sqrt(Math.min(1, dist / maxDist));
+    let preferR = innerR + t * (outerR - innerR);
+    if (node.kind === "start") preferR = innerR + (outerR - innerR) * 0.22;
+    if (node.kind === "target") preferR = outerR * 0.92;
+    return { id: node.id, angle: wrapAngle(angle), preferR };
   });
 
-  const bands = [0, 1, 2].map((band) =>
-    polars.filter((p) => Math.abs(p.radius - ringRadius[band]) < 1),
-  );
-
-  for (const group of bands) {
-    if (group.length === 0) continue;
-    group.sort((a, b) => a.angle - b.angle);
-    const count = group.length;
-    const span = (Math.PI * 2) / count;
-    const offset = group.reduce((s, p) => s + p.angle, 0) / count - ((count - 1) * span) / 2;
-    for (let i = 0; i < count; i++) {
-      const even = wrapAngle(offset + i * span);
-      const orig = group[i].angle;
-      let delta = even - orig;
-      if (delta > Math.PI) delta -= Math.PI * 2;
-      if (delta < -Math.PI) delta += Math.PI * 2;
-      group[i].angle = wrapAngle(orig + delta * 0.72);
-    }
-
-    for (let iter = 0; iter < 50; iter++) {
-      group.sort((a, b) => a.angle - b.angle);
-      for (let i = 0; i < group.length; i++) {
-        const a = group[i];
-        const b = group[(i + 1) % group.length];
-        const wa = bodies.get(a.id)!.w;
-        const wb = bodies.get(b.id)!.w;
-        const meanR = (a.radius + b.radius) / 2;
-        const minGap = (wa / 2 + wb / 2 + GAP) / Math.max(140, meanR);
-        let gap = b.angle - a.angle;
-        if (i === group.length - 1) gap += Math.PI * 2;
-        if (gap >= minGap) continue;
-        const extra = (minGap - gap) / 2;
-        a.angle = wrapAngle(a.angle - extra);
-        b.angle = wrapAngle(b.angle + extra);
-      }
-    }
+  // Even angular nudge so nearby API angles do not start stacked.
+  polars.sort((a, b) => a.angle - b.angle);
+  const evenSpan = (Math.PI * 2) / polars.length;
+  const evenOffset =
+    polars.reduce((s, p) => s + p.angle, 0) / polars.length -
+    ((polars.length - 1) * evenSpan) / 2;
+  for (let i = 0; i < polars.length; i++) {
+    const even = wrapAngle(evenOffset + i * evenSpan);
+    const orig = polars[i].angle;
+    let delta = even - orig;
+    if (delta > Math.PI) delta -= Math.PI * 2;
+    if (delta < -Math.PI) delta += Math.PI * 2;
+    polars[i].angle = wrapAngle(orig + delta * 0.55);
   }
 
   const current = new Map<string, Point>();
+  const prefer = new Map<string, number>();
   for (const polar of polars) {
+    prefer.set(polar.id, polar.preferR);
     current.set(polar.id, {
-      x: cx + Math.cos(polar.angle) * polar.radius,
-      y: cy + Math.sin(polar.angle) * polar.radius,
+      x: cx + Math.cos(polar.angle) * polar.preferR,
+      y: cy + Math.sin(polar.angle) * polar.preferR,
     });
   }
 
-  const ids = nodes.map((n) => n.id);
-  for (let iter = 0; iter < 80; iter++) {
+  const ids = nodes.map((node) => node.id);
+  const margin = 16;
+
+  for (let iter = 0; iter < SEPARATION_ITERS; iter++) {
+    let moved = false;
+
     for (let i = 0; i < ids.length; i++) {
       for (let j = i + 1; j < ids.length; j++) {
         const idA = ids[i];
@@ -244,36 +315,103 @@ export function spreadDisplayPositions(
         const oy = (a.h + b.h) / 2 + GAP - Math.abs(dy);
         if (ox <= 0 || oy <= 0) continue;
 
-        const dirX = Math.sign(dx || 1);
-        const dirY = Math.sign(dy || 1);
-        current.set(idA, {
-          x: pa.x - dirX * ox * 0.32,
-          y: pa.y - dirY * oy * 0.32,
-        });
-        current.set(idB, {
-          x: pb.x + dirX * ox * 0.32,
-          y: pb.y + dirY * oy * 0.32,
-        });
+        moved = true;
+        // Resolve along the shallower axis so pills slide past each other.
+        if (ox < oy) {
+          const push = ox * SEPARATION_STRENGTH;
+          const dirX = Math.sign(dx || 1);
+          current.set(idA, { x: pa.x - dirX * push, y: pa.y });
+          current.set(idB, { x: pb.x + dirX * push, y: pb.y });
+        } else {
+          const push = oy * SEPARATION_STRENGTH;
+          const dirY = Math.sign(dy || 1);
+          current.set(idA, { x: pa.x, y: pa.y - dirY * push });
+          current.set(idB, { x: pb.x, y: pb.y + dirY * push });
+        }
       }
     }
 
+    // Soft pull toward preferred radius — never hard-clamp (that re-stacks pills).
+    const radialBlend = iter < SEPARATION_ITERS * 0.7 ? 0.08 : 0.02;
     for (const id of ids) {
       const body = bodies.get(id)!;
       const p = current.get(id)!;
       const vx = p.x - cx;
       const vy = p.y - cy;
       const dist = Math.hypot(vx, vy) || 1;
-      const minR = ring * 0.42;
-      const maxR = ring * 1.28;
-      const clamped = Math.min(maxR, Math.max(minR, dist));
-      const nx = cx + (vx / dist) * clamped;
-      const ny = cy + (vy / dist) * clamped;
-      current.set(id, {
-        x: Math.min(world - body.w / 2 - 16, Math.max(body.w / 2 + 16, nx)),
-        y: Math.min(world - body.h / 2 - 16, Math.max(body.h / 2 + 16, ny)),
-      });
+      const targetR = prefer.get(id)!;
+      const nextR = dist + (targetR - dist) * radialBlend;
+      let nx = cx + (vx / dist) * nextR;
+      let ny = cy + (vy / dist) * nextR;
+      nx = Math.min(world - body.w / 2 - margin, Math.max(body.w / 2 + margin, nx));
+      ny = Math.min(world - body.h / 2 - margin, Math.max(body.h / 2 + margin, ny));
+      if (nx !== p.x || ny !== p.y) moved = true;
+      current.set(id, { x: nx, y: ny });
     }
+
+    if (!moved && iter > 20) break;
   }
+
+  // Final hard pass: if anything still overlaps, push purely apart (no radial pull).
+  for (let iter = 0; iter < 80; iter++) {
+    let hit = false;
+    for (let i = 0; i < ids.length; i++) {
+      for (let j = i + 1; j < ids.length; j++) {
+        const idA = ids[i];
+        const idB = ids[j];
+        const a = bodies.get(idA)!;
+        const b = bodies.get(idB)!;
+        const pa = current.get(idA)!;
+        const pb = current.get(idB)!;
+        const ra = rectFromCenter(pa.x, pa.y, a.w, a.h);
+        const rb = rectFromCenter(pb.x, pb.y, b.w, b.h);
+        if (!overlaps(ra, rb, GAP)) continue;
+        hit = true;
+        const dx = pb.x - pa.x;
+        const dy = pb.y - pa.y;
+        const ox = (a.w + b.w) / 2 + GAP - Math.abs(dx);
+        const oy = (a.h + b.h) / 2 + GAP - Math.abs(dy);
+        if (ox < oy) {
+          const push = Math.max(ox * 0.6, 1.5);
+          const dirX = Math.sign(dx || 1);
+          current.set(idA, {
+            x: Math.min(
+              world - a.w / 2 - margin,
+              Math.max(a.w / 2 + margin, pa.x - dirX * push),
+            ),
+            y: pa.y,
+          });
+          current.set(idB, {
+            x: Math.min(
+              world - b.w / 2 - margin,
+              Math.max(b.w / 2 + margin, pb.x + dirX * push),
+            ),
+            y: pb.y,
+          });
+        } else {
+          const push = Math.max(oy * 0.6, 1.5);
+          const dirY = Math.sign(dy || 1);
+          current.set(idA, {
+            x: pa.x,
+            y: Math.min(
+              world - a.h / 2 - margin,
+              Math.max(a.h / 2 + margin, pa.y - dirY * push),
+            ),
+          });
+          current.set(idB, {
+            x: pb.x,
+            y: Math.min(
+              world - b.h / 2 - margin,
+              Math.max(b.h / 2 + margin, pb.y + dirY * push),
+            ),
+          });
+        }
+      }
+    }
+    if (!hit) break;
+  }
+
+  circularizeLayout(ids, bodies, current, cx, cy);
 
   return current;
 }

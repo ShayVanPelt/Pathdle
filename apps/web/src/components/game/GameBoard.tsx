@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties, PointerEvent as ReactPointerEvent } from "react";
 import type { Edge, PuzzleNode } from "@/lib/api/types";
 import { SCORING } from "@/lib/api/types";
+import { chartedNodeIds } from "@/lib/game/charted";
 import {
   nodeBody,
   nodeRects,
@@ -17,7 +18,8 @@ import { FieldAtmosphere } from "./FieldAtmosphere";
 import { GraphEdges } from "./GraphEdges";
 import { GraphNode, resolveExploration } from "./GraphNode";
 
-const WORLD = 1000;
+/** Display world — large enough for ~60 pills with gaps in a filled disk. */
+const WORLD = 1400;
 const PAD = 88;
 const DRAG_THRESHOLD_PX = 10;
 const MIN_K = 0.5;
@@ -173,6 +175,10 @@ export function GameBoard({
   const targetId = useMemo(
     () => nodes.find((n) => n.kind === "target")?.id,
     [nodes],
+  );
+  const chartedIds = useMemo(
+    () => chartedNodeIds(startId ?? "", discoveredEdges),
+    [startId, discoveredEdges],
   );
 
   const positions = useMemo(() => {
@@ -410,7 +416,7 @@ export function GameBoard({
 
     onCloseMenu();
     onSelectedChange(nodeId);
-    if (playLocked) {
+    if (playLocked || !chartedIds.has(nodeId)) {
       onNodeClick(nodeId);
       return;
     }
@@ -707,6 +713,7 @@ export function GameBoard({
                 <GraphNode
                   node={node}
                   exploration={exploration}
+                  canInitiateLink={chartedIds.has(node.id)}
                   selected={selected}
                   hovered={hoverId === node.id}
                   highlighted={highlightSet.has(node.id)}
@@ -732,6 +739,7 @@ export function GameBoard({
         <ChartNote
           title={menuNode.title}
           neighbors={neighbors}
+          canExplore={chartedIds.has(menuNode.id)}
           revealed={revealedSet.has(menuNode.id)}
           playLocked={playLocked}
           variant={compact ? "sheet" : "popover"}

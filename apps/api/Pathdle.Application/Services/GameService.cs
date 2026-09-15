@@ -93,6 +93,7 @@ public sealed class GameService(
 
         EnsureNodeExists(puzzle, request.FromId);
         EnsureNodeExists(puzzle, request.ToId);
+        EnsureChartedSource(game, puzzle, request.FromId);
 
         var alreadyDiscovered = game.DiscoveredEdges.Any(e =>
             string.Equals(e.From, request.FromId, StringComparison.Ordinal)
@@ -167,6 +168,7 @@ public sealed class GameService(
         }
 
         EnsureNodeExists(puzzle, request.ArticleId);
+        EnsureChartedSource(game, puzzle, request.ArticleId);
 
         var alreadyRevealed = game.RevealedArticleIds.Any(id =>
             string.Equals(id, request.ArticleId, StringComparison.Ordinal));
@@ -357,6 +359,23 @@ public sealed class GameService(
             puzzle.StartArticleId,
             puzzle.TargetArticleId,
             game.DiscoveredEdges) is not null;
+
+    private static void EnsureChartedSource(
+        PlayerGame game,
+        DailyPuzzle puzzle,
+        string articleId)
+    {
+        var isReachable = GraphPathFinder.FindShortestPath(
+            puzzle.StartArticleId,
+            articleId,
+            game.DiscoveredEdges) is not null;
+
+        if (!isReachable)
+        {
+            throw new ConflictException(
+                "Chart a path to this article before exploring from it.");
+        }
+    }
 
     private static void EnsureNodeExists(DailyPuzzle puzzle, string articleId)
     {

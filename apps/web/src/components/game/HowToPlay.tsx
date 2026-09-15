@@ -14,11 +14,11 @@ const STEPS = [
   },
   {
     title: `Test a link (+${SCORING.successfulLink})`,
-    body: `Drag one star onto another. A real link stays as a solid gold path. A miss still costs +${SCORING.failedLink}. No undoing.`,
+    body: `Drag from START or any charted star onto another. A real link stays as a solid gold path. A miss still costs +${SCORING.failedLink}. No undoing.`,
   },
   {
     title: `Reveal hints (+${SCORING.revealOutbound})`,
-    body: "Tap a star for its chart note, then reveal outbound hints. Dashed teal lines are hints only; drag to confirm.",
+    body: "Tap START or a charted star, then reveal its outbound hints. Dashed teal lines are hints only; drag to confirm.",
   },
   {
     title: "Explore the sky",

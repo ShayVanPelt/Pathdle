@@ -15,6 +15,7 @@ export type NodeExploration = "start" | "target" | "path" | "branch" | "option";
 type Props = {
   node: PuzzleNode;
   exploration: NodeExploration;
+  canInitiateLink: boolean;
   selected: boolean;
   hovered: boolean;
   highlighted: boolean;
@@ -32,6 +33,7 @@ type Props = {
 export function GraphNode({
   node,
   exploration,
+  canInitiateLink,
   selected,
   hovered,
   highlighted,
@@ -73,7 +75,9 @@ export function GraphNode({
       onPointerDown={onPointerDown}
       onPointerEnter={onPointerEnter}
       onPointerLeave={onPointerLeave}
-      style={{ cursor: playLocked ? "default" : "crosshair" }}
+      style={{
+        cursor: playLocked ? "default" : canInitiateLink ? "crosshair" : "pointer",
+      }}
     >
       <rect
         x={-body.w / 2 - 8}

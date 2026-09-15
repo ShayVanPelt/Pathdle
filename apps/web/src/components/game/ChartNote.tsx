@@ -12,6 +12,7 @@ export type ChartNeighbor = {
 type Props = {
   title: string;
   neighbors: ChartNeighbor[];
+  canExplore: boolean;
   revealed: boolean;
   playLocked?: boolean;
   variant: "popover" | "sheet";
@@ -23,6 +24,7 @@ type Props = {
 export function ChartNote({
   title,
   neighbors,
+  canExplore,
   revealed,
   playLocked,
   variant,
@@ -52,7 +54,9 @@ export function ChartNote({
       </div>
 
       <p className="mt-3 text-sm leading-relaxed text-[var(--ink-muted)]">
-        Drag to another star to test a link. Reveals draw dashed hint lines; they are not your path until you confirm.
+        {canExplore
+          ? "Drag to another star to test a link. Reveals draw dashed hint lines; they are not your path until you confirm."
+          : "Chart a confirmed path to this star before exploring from it."}
       </p>
 
       {neighbors.length > 0 && (
@@ -80,9 +84,13 @@ export function ChartNote({
           event.stopPropagation();
           onReveal();
         }}
-        disabled={revealed || playLocked}
+        disabled={!canExplore || revealed || playLocked}
       >
-        {revealed ? "Hints already shown" : `Reveal outbound hints  +${SCORING.revealOutbound}`}
+        {!canExplore
+          ? "Connect this star to unlock hints"
+          : revealed
+            ? "Hints already shown"
+            : `Reveal outbound hints  +${SCORING.revealOutbound}`}
       </button>
     </>
   );
