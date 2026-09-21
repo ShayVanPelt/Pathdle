@@ -21,17 +21,22 @@ internal static class LayoutBuilder
             positions[path[i]] = (Clamp(x), Clamp(y));
         }
 
-        // Place traps near a random path parent they connect from, else orbit mid path.
         foreach (var id in board.NodeIds)
         {
             if (positions.ContainsKey(id)) continue;
 
             string? parent = null;
-            foreach (var (from, to) in board.Edges)
+            foreach (var edge in board.Edges)
             {
-                if (to == id && positions.ContainsKey(from))
+                if (edge.To == id && positions.ContainsKey(edge.From))
                 {
-                    parent = from;
+                    parent = edge.From;
+                    break;
+                }
+
+                if (edge.From == id && positions.ContainsKey(edge.To))
+                {
+                    parent = edge.To;
                     break;
                 }
             }
@@ -45,7 +50,6 @@ internal static class LayoutBuilder
                 Clamp(py + Math.Sin(angle) * radius * 0.85));
         }
 
-        // Mild separation.
         for (var iter = 0; iter < 40; iter++)
         {
             var ids = positions.Keys.ToList();
@@ -86,7 +90,7 @@ internal static class LayoutBuilder
                     : id == board.Path.TargetId
                         ? NodeKind.Target
                         : NodeKind.Normal;
-                return new PuzzleNode(id, art.Title, x, y, kind);
+                return new PuzzleNode(id, art.Title, x, y, kind, art.Description);
             })
             .OrderBy(n => n.Kind == NodeKind.Start ? 0 : n.Kind == NodeKind.Target ? 2 : 1)
             .ThenBy(n => n.Title, StringComparer.OrdinalIgnoreCase)

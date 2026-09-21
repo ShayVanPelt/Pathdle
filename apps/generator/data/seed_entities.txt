@@ -1,0 +1,199 @@
+# Pathdle Wikidata seed entities (QIDs).
+# Lines starting with # are ignored. Duplicates are fine (ingest Distincts).
+#
+# Why this list (improves Pathdle):
+# - Concrete multi-group hubs that bridge domains (Nintendo↔Sony↔Toyota,
+#   Einstein↔Curie↔physics, Mario↔Pokémon↔Nintendo, apple-fruit↔foods↔vitamin C).
+# - NOT class QIDs (film/video game/country/company). SPARQL already expands
+#   those via GroupVocabulary.AllowedInstanceClasses.
+# - Cities over mega-countries as seeds: US/UK/etc. are denylisted as *group*
+#   values, so seeding them rarely creates useful edges.
+# - Allowlisted properties (industry, occupation, genre, developer, director,
+#   manufacturer, series, …) are what turn these into playable groups.
+#
+# Re-ingest:
+#   dotnet run --project apps/generator/Pathdle.Generator -- ingest-corpus --max-entities=2500
+
+# --- Tech & consumer brands ---
+Q312          # Apple Inc.
+Q2283         # Microsoft
+Q95           # Google
+Q380          # Meta Platforms
+Q3884         # Amazon
+Q27500963     # Dell Technologies
+Q199897       # HP Inc.
+Q248          # Intel
+Q182477       # NVIDIA
+Q11463        # Adobe
+Q37156        # IBM
+Q8093         # Nintendo
+Q41187        # Sony
+Q20718        # Samsung Electronics
+Q478214       # Tesla
+Q53268        # Toyota
+Q27510        # Honda
+Q35994        # BMW
+Q483915       # Nike
+Q38076        # McDonald's
+Q3295867      # The Coca-Cola Company
+Q907311       # Netflix
+Q689141       # Spotify
+Q1636955      # Valve
+Q193695       # Ubisoft
+Q162411       # Electronic Arts
+Q210294       # Activision Blizzard
+Q1156046      # The Pokémon Company
+
+# --- People (occupation / creator bridges) ---
+Q937          # Albert Einstein
+Q7186         # Marie Curie
+Q935          # Isaac Newton
+Q762          # Leonardo da Vinci
+Q5593         # Pablo Picasso
+Q5597         # Vincent van Gogh
+Q5592         # Michelangelo
+Q296          # Claude Monet
+Q8735         # Thomas Edison
+Q7259         # Ada Lovelace
+Q7251         # Alan Turing
+Q19848        # Steve Jobs
+Q5284         # Bill Gates
+Q317521       # Elon Musk
+Q76           # Barack Obama
+Q6294         # Hillary Clinton
+Q41421        # Michael Jordan
+Q11459        # Serena Williams
+Q26876        # Taylor Swift
+Q36153        # Beyoncé
+Q38111        # Leonardo DiCaprio
+Q25191        # Christopher Nolan
+Q22686        # Steven Spielberg
+Q103894       # Hayao Miyazaki
+Q48337        # Shigeru Miyamoto
+Q25338        # Hideo Kojima
+Q44264        # Akira Kurosawa
+Q8023         # Nelson Mandela
+Q8027         # Martin Luther King Jr.
+Q13925        # Oprah Winfrey
+Q16345        # Tom Hanks
+Q692          # William Shakespeare
+Q34981        # Jane Austen
+Q6927         # Mark Twain
+Q11649        # Michael Jackson
+Q392          # Bob Dylan
+Q11681        # Madonna
+Q1545         # Elvis Presley
+
+# --- Games & franchises ---
+Q864          # Pokémon
+Q12389        # Mario
+Q12393        # The Legend of Zelda
+Q12394        # Super Mario
+Q49740        # Minecraft
+Q18978        # Pac-Man
+Q188793       # Tetris
+Q220682       # Grand Theft Auto
+Q1345981      # The Last of Us
+Q220246       # Call of Duty
+
+# --- Film / TV / comics ---
+Q462          # Star Wars
+Q8337         # Harry Potter
+Q173991       # Marvel Comics
+Q179260       # Batman
+Q79037        # Spider-Man
+Q25188        # Inception
+Q163872       # The Dark Knight
+Q13417189     # Interstellar
+Q220766       # The Matrix
+Q165366       # Pulp Fiction
+Q132198       # Titanic
+Q46531        # Friends
+Q886          # The Simpsons
+Q104123       # Breaking Bad
+Q23572        # Game of Thrones
+Q113946       # Stranger Things
+Q11696        # The Office (US)
+
+# --- Music ---
+Q1299         # The Beatles
+Q15862        # Queen
+
+# --- Foods / science (cross-domain bridges) ---
+Q89           # apple (fruit)
+Q13191        # orange (fruit)
+Q503          # banana
+Q83265        # lemon
+Q37337        # strawberry
+Q13188        # grape
+Q199678       # ascorbic acid (vitamin C)
+Q8486         # coffee
+Q195          # chocolate
+Q11001        # potato
+Q11004        # tomato
+Q10987        # rice
+Q11013        # wheat
+Q209769       # DNA
+Q413          # physics
+Q2329         # chemistry
+Q420          # biology
+Q11163        # mathematics
+Q11452        # theory of relativity
+Q37147        # quantum mechanics
+Q833          # water
+Q283          # hydrogen
+
+# --- Cities (HQ / setting anchors; stronger than seeding denylisted countries) ---
+Q1490         # Tokyo
+Q34664        # Kyoto
+Q84           # London
+Q90           # Paris
+Q60           # New York City
+Q65           # Los Angeles
+Q24639        # Vancouver
+Q189471       # Cupertino
+Q172          # Toronto
+Q64           # Berlin
+Q220          # Rome
+Q956          # Beijing
+Q8684         # Seoul
+Q3141         # Sydney
+Q1297         # Chicago
+Q8646         # Hong Kong
+
+# --- Sports ---
+Q186030       # National Basketball Association
+Q5389         # Olympic Games
+
+# --- Platforms / products (manufacturer & platform bridges) ---
+Q14116        # iPhone
+Q484893       # Macintosh
+Q1406         # Microsoft Windows
+Q94           # Android
+Q918          # YouTube
+Q2089         # PlayStation
+Q607388       # Xbox
+Q17042        # Nintendo Switch
+Q1322647      # Steam (service)
+
+# --- Studios / more works (creator & franchise bridges) ---
+Q188791       # Pixar
+Q191224       # Walt Disney Company / Disney
+Q741438       # Studio Ghibli
+Q388198       # Fortnite
+Q208569       # Avatar (2009 film)
+Q181795       # Jurassic Park
+
+# --- Philosophers / scientists (field_of_work bridges) ---
+Q913          # Socrates
+Q868          # Aristotle
+Q307          # Galileo Galilei
+Q8753         # Charles Darwin
+Q9352         # Sigmund Freud
+
+# --- Light place entities (peers for HQ / origin; group *values* still denylisted) ---
+Q17           # Japan
+Q142          # France
+Q38           # Italy
+Q183          # Germany
+Q668          # India

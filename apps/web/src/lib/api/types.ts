@@ -6,11 +6,16 @@ export type PuzzleNode = {
   x: number;
   y: number;
   kind: NodeKind;
+  /** Short Wikidata English description, when available. */
+  description?: string | null;
 };
 
 export type Edge = {
   from: string;
   to: string;
+  /** Present on discovered edges only — never on hints. */
+  groupId?: string | null;
+  groupLabel?: string | null;
 };
 
 export type PublicPuzzle = {
@@ -36,6 +41,8 @@ export type GameState = {
   revealedArticleIds: string[];
   connectionCount: number;
   score: number;
+  hintsUsed: number;
+  hintsRemaining: number;
   reachedTarget: boolean;
 };
 
@@ -43,9 +50,13 @@ export type AttemptResponse = {
   success: boolean;
   fromId: string;
   toId: string;
+  groupId?: string | null;
+  groupLabel?: string | null;
   pointsAdded: number;
   connectionCount: number;
   score: number;
+  hintsUsed: number;
+  hintsRemaining: number;
   discoveredEdges: Edge[];
   hintEdges: Edge[];
   playerPath: string[];
@@ -61,6 +72,8 @@ export type RevealResponse = {
   pointsAdded: number;
   connectionCount: number;
   score: number;
+  hintsUsed: number;
+  hintsRemaining: number;
   discoveredEdges: Edge[];
   hintEdges: Edge[];
   playerPath: string[];
@@ -83,6 +96,7 @@ export type CompleteResponse = {
 /** Keep in sync with Pathdle.Application.ScoringRules */
 export const SCORING = {
   successfulLink: 100,
-  failedLink: 100,
+  failedLink: 200,
   revealOutbound: 75,
+  maxHintsPerGame: 3,
 } as const;

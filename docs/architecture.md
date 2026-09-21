@@ -1,6 +1,6 @@
 # Pathdle Architecture (MVP)
 
-Daily Wikipedia graph puzzle. Players discover a hidden directed graph from START to TARGET on a shared daily board (~60 nodes).
+Daily shortest-path puzzle on a **Wikidata-derived group graph**. Players discover hidden undirected connections from START to TARGET on a shared daily board (~30–40 nodes).
 
 ## Stack
 
@@ -10,7 +10,7 @@ Daily Wikipedia graph puzzle. Players discover a hidden directed graph from STAR
 | API | ASP.NET Core, C# | Google Cloud Run |
 | Puzzle generator | C# console / Cloud Run Job | Cloud Scheduler → Cloud Run Job |
 | Play DB | PostgreSQL | Supabase |
-| Graph corpus | Neo4j | Neo4j AuraDB |
+| Graph corpus | Neo4j (Entity / Group / SHARES_GROUP) | Neo4j AuraDB / local Docker |
 
 ## Core principles
 
@@ -18,37 +18,27 @@ Daily Wikipedia graph puzzle. Players discover a hidden directed graph from STAR
 2. **Published puzzles are immutable.** New day = insert; never overwrite active puzzles.
 3. **Clients never receive the full edge set or optimal path** until game complete (anti-cheat / spoiler).
 4. **Anonymous-first identity.** Stable browser `player_key`; optional sign-in later to record scores.
-5. **Wikipedia corpus is a bounded subset**, ingested separately from daily generation.
+5. **Groups are the foundation.** Controlled Wikidata property allowlist → co-membership edges with rarity; not Wikipedia hyperlinks.
 
 ## Runtime topology
 
 ```
 Cloud Scheduler → Cloud Run Job (Pathdle.Generator)
                          ↓
-                    Neo4j Aura (corpus)
+                    Neo4j Aura (group corpus)
                          ↓
               publish snapshot → Supabase Postgres
 
 Next.js (Vercel) ⇄ ASP.NET Core (Cloud Run) ⇄ Postgres
                          ↑
                     Neo4j not on this path
-
-Deploy guide: `docs/deploy-cloud-run.md` (`apps/api/Dockerfile`, `infra/cloud/deploy-api.*`).
 ```
 
 ## Identity
 
-### MVP
-
 - On first visit, create a UUID `player_key` in `localStorage`.
 - Send on every game API call (`X-Player-Key` header).
 - One game per `(daily_puzzle_id, player_key)`.
-
-### Later (opt-in)
-
-- Supabase Auth (or equivalent).
-- Link `player_key` → `user_id` without orphaning in-progress games.
-- Public leaderboards only for signed-in users; guests keep full play.
 
 ## Scoring (MVP)
 
@@ -56,119 +46,82 @@ Points are a **cost**. Lower score is better.
 
 | Action | Points |
 |--------|--------|
-| Successful directed link (drag A → B, edge exists) | **+100** — permanent path line |
-| Failed link attempt (no edge that way) | **+100** — no line; miss animation |
-| Reveal outbound neighbors from one article | **+75** — dashed **hint** lines only; player must still drag to confirm |
+| Successful connection (shared group exists) | **+100** — permanent path line + relationship label |
+| Failed attempt | **+200** — no line; miss animation |
+| Reveal neighbors from one article | **+75** — dashed hints, no labels; max **3** paid; free re-show |
 
-Constants live in `Pathdle.Application.ScoringRules` and `apps/web/src/lib/api/types.ts` (`SCORING`).
-
-Failed attempts still cost points (exploration is not free).
-Reveals are per article (once); reopening is free.
+Constants: `Pathdle.Application.ScoringRules` and web `SCORING`.
 
 ## REST API
 
 | Method | Path | Purpose |
 |--------|------|---------|
 | `GET` | `/api/puzzles/today` | Public puzzle: nodes, layout, start/target (no edges) |
-| `GET` | `/api/puzzles/{date}` | Archive (optional) |
+| `GET` | `/api/puzzles/{date}` | Archive |
 | `POST` | `/api/games` | Start session |
 | `GET` | `/api/games/{gameId}` | Resume |
 | `POST` | `/api/games/{gameId}/attempts` | `{ fromId, toId }` |
-| `POST` | `/api/games/{gameId}/reveals` | `{ articleId }` outbound reveal (+75) |
+| `POST` | `/api/games/{gameId}/reveals` | `{ articleId }` neighbor reveal |
 | `POST` | `/api/games/{gameId}/complete` | Finish + results (includes optimal) |
 | `GET` | `/api/health` | Probes |
 
-Puzzle day is **UTC** calendar date.
+Puzzle day is **UTC** calendar date. Edges are **undirected**.
 
 ## PostgreSQL
 
-Local Docker Compose (`docker compose up -d`) or Supabase.
+See `infra/sql/migrations/`.
 
-See `infra/sql/migrations/001_init.sql`.
-
-- `daily_puzzles`: immutable published board + server-only `edges` / `optimal_path`.
-- `player_games`: session progress keyed by `player_key`; includes `hint_edges` + `reveals`; nullable `user_id` for later auth.
+- `daily_puzzles`: immutable board; server-only `edges` (`from`,`to`,`groupId`,`groupLabel`) / `optimal_path`.
+- `player_games`: `discovered_edges`, `hint_edges`, `reveals`, `hints_used`, score, path.
 - `leaderboard_entries`: optional later.
-
-**Local dev:** `appsettings.Development.json` sets `Pathdle:Storage=Postgres` with Docker connection string.
-
-**Production default:** `appsettings.json` keeps `InMemory` until Cloud Run is configured with `ConnectionStrings__Postgres` (or `Pathdle__Storage=Postgres` env).
 
 ## Neo4j
 
 ```
-(:Article { id, title, page_id?, degree_out, degree_in, popularity? })
-(:Article)-[:LINKS_TO]->(:Article)
-(:CorpusMeta { version, article_count, edge_count, built_at })
+(:Entity { id, title, popularity })
+(:Group { id, label, property, valueId, frequency, rarity, memberCount })
+(:Entity)-[:IN_GROUP]->(:Group)
+(:Entity)-[:SHARES_GROUP { groupId, groupLabel, rarity }]->(:Entity)
+(:CorpusMeta { version, entity_count, group_count, edge_count, built_at })
 ```
 
-No player or daily-puzzle data in Neo4j for MVP.
+No player or daily-puzzle data in Neo4j.
 
 ## Daily generation
 
-See [`docs/generator.md`](generator.md) for the full quality model.
+See [`docs/generator.md`](generator.md).
 
-Summary:
-
-1. Seed = hash(`puzzle_date` + `corpus_version`).
-2. Sample START / TARGET with shortest-path length in **{4, 5, 6}**.
-3. Score difficulty (alt paths, mid-path branches, hubs, traps).
-4. Build ~50–70 node board: optimal path ∪ mid-path trap branches ∪ light distractors.
-5. Induce subgraph edges; store layout positions (not graph-aware clustering).
-6. Idempotent publish: if `puzzle_date` exists, exit; never overwrite.
-
-## Wikipedia corpus (MVP)
-
-- Curated seeds + bounded crawl (thousands of articles; config cap).
-- Versioned ingest (`corpus_version`); not rebuilt daily.
-- Edges leaving the subset are dropped.
-- Local Neo4j: Docker Compose service `neo4j` (`bolt://localhost:7687`).
-
-## Graph versioning
-
-- `player_games.daily_puzzle_id` is the source of truth.
-- Overnight generation inserts tomorrow’s row; in-progress games keep yesterday’s FK.
-- Retain published puzzles at least 48–72h (preferably longer).
-
-## Repo layout
-
-```
-apps/web         Next.js frontend
-apps/api         ASP.NET Core play API
-apps/generator   Daily puzzle + ingest job entrypoints
-infra/sql        Supabase migrations
-docs/            Architecture and design notes
-```
+1. Seed = hash(`puzzle_date` + `corpus_version` + nonce).
+2. Rarity-weighted walks → candidate paths; BFS validates length (~4–6).
+3. Board ~30–40 nodes with mid-path traps; no shortcuts.
+4. Idempotent publish by `puzzle_date`.
 
 ## Frontend UX (web)
 
-- Full-bleed SVG constellation on a near-black night-void atmosphere; top instrument HUD (brand | path rail | score) — no side panels.
-- In-node pill labels; circular display spacing from API coordinates (display-only).
-- Camera: pan, wheel/pinch/+− zoom, recenter. Chart note for reveals; auto-open results on TARGET.
-- Visual redesign must not change gameplay contracts (attempts, reveals, scoring, path).
-- Design source of truth: `.impeccable.md` and `apps/web/AGENTS.md`.
+- Full-bleed SVG constellation; top HUD (brand | path rail | score / links / hints).
+- In-node pill labels; relationship plaques on confirmed edges; filled constellation spacing.
+- Chart note for reveals; auto-open results on TARGET.
 
 ## Build order
 
 | Step | Status | Notes |
 |------|--------|-------|
-| 1. Schema + migrations | ✅ | `infra/sql/migrations/`; Docker init on first boot |
-| 2. API + seeded puzzle | ✅ | Postgres in dev; in-memory fallback in prod JSON |
-| 3. Game endpoints | ✅ | start / attempt / reveal / complete |
-| 4. SVG board UI | ✅ | pan, zoom, in-node pills, path rail HUD, chart note, results |
-| 5. Wire web ↔ API | ✅ | `NEXT_PUBLIC_API_BASE_URL` |
-| 6. Neo4j corpus ingest | ✅ | `ingest-corpus`; local Docker Neo4j |
-| 7. Generator → Postgres publish | ✅ | `generate-daily`; idempotent by date |
-| 8. Scheduler + Cloud Run Job | 🔲 | Generator Dockerfile ready; Scheduler not wired |
-| 9. Deploy (Vercel / Cloud Run) | 🔲 | API Dockerfile + `docs/deploy-cloud-run.md` ready |
-| 10. Leaderboard + auth opt-in | 🔲 | reveals implemented; leaderboard/auth later |
+| 1. Schema + migrations | ✅ | includes `hints_used` |
+| 2. API + group-graph seed | ✅ | Dell → Vitamin C |
+| 3. Game endpoints | ✅ | undirected + labels + hint budget |
+| 4. SVG board UI | ✅ | edge labels, hints remaining |
+| 5. Wire web ↔ API | ✅ | |
+| 6. Neo4j group-graph ingest | ✅ | Wikidata + `--demo` |
+| 7. Generator → Postgres | ✅ | rarity-weighted |
+| 8. Scheduler + Cloud Run Job | 🔲 | |
+| 9. Deploy | 🔲 | |
+| 10. Leaderboard + auth | 🔲 | |
 
 ## Explicitly out of scope (for now)
 
-- Full English Wikipedia on Aura
+- Full Wikidata on Aura
 - Neo4j on the request path
 - Auth UI / OAuth
 - Overwriting published puzzles
+- Compound groups (`genre ∩ decade`) — later if needed
 - Heavy graph viz libraries / continuous force-directed physics
-- Terraform / multi-env complexity
-- Perfect difficulty ML

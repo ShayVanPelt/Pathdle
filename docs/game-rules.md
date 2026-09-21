@@ -1,11 +1,11 @@
-# Pathdle game rules (MVP)
+# Pathdle game rules
 
 Source of truth for costs: `apps/api/Pathdle.Application/ScoringRules.cs`  
 Mirrored in the web client: `apps/web/src/lib/api/types.ts` → `SCORING`
 
 ## Objective
 
-Reach **TARGET** from **START** by discovering directed links. Compare your path to the stored optimal path at the end.
+Connect **START** to **TARGET** by discovering undirected relationships between nodes (shared groups/properties). Finish with the **lowest score**. Compare your route to the stored optimal path at the end.
 
 ## Scoring
 
@@ -13,33 +13,29 @@ Reach **TARGET** from **START** by discovering directed links. Compare your path
 
 | Action | Cost | Effect |
 |--------|------|--------|
-| Drag A → B when a directed board edge exists | **+100** | Permanent amber path link (kept forever; branching allowed) |
-| Drag A → B when no edge exists | **+100** | No line; miss animation (+100 label) |
-| Click article → **Reveal hints** | **+75** | Dashed teal hints only. Still must drag to confirm. Confirming a link from that article clears its remaining hint lines. |
+| Drag A → B when a shared-group edge exists | **+100** | Permanent path link; relationship label appears on the line |
+| Drag A → B when no edge exists | **+200** | No line; miss animation |
+| Reveal connections from one charted node | **+75** | Dashed teal hints to **all** neighbors (no relationship labels). Max **3** paid reveals per puzzle. |
 
-Already-confirmed links and already-revealed articles do not charge again.
+Already-confirmed links do not charge again. Re-showing hints for a previously revealed node is **free**. Confirming a link from a node clears its outbound dashed hints.
 
 ## Hints vs path links
 
-- **Hint edges** (`hintEdges`): visual only (dashed teal). Not on your path until you **drag to confirm**. After a successful confirm from an article, that article's outbound hint lines are cleared.
-- **Discovered edges** (`discoveredEdges`): permanent links from successful drags. Never removed.
-- You may draw **multiple links from the same node**, including from nodes earlier in your chart (branching).
-- Score only increases when you make a **new** drag attempt (success or fail) or a new reveal — there is no undo/remove.
+- **Hint edges** (`hintEdges`): visual only (dashed teal). No group labels. Not on your path until you **drag to confirm**.
+- **Discovered edges** (`discoveredEdges`): permanent links with `groupLabel`. Never removed.
+- You may draw **multiple links from the same node** (branching from any charted node).
+- Score only increases for new successful links, misses, or paid hints — no undo.
 
 ## Controls
 
-- **Drag node → node** — test / confirm a link (draw-on success / brief miss on fail)
-- **Click node** (no drag) — open chart note → Reveal outbound hints
+- **Drag node → node** — test / confirm a connection
+- **Click node** (no drag) — chart note → Reveal connections
 - **Drag background** — pan
 - **Scroll / pinch / + −** — zoom; **recenter** fits START, TARGET, and path
-- Chart rail hops — select / focus a star on the path
-
-## Presentation (UI)
-
-Full-bleed night-void constellation. Top instrument row: brand | charted path | score/links. Labels sit inside node pills; display layout uses a circular ring (API coords are direction only). Edge styles: solid amber path, muted branch, dashed teal hints. Reaching TARGET auto-opens results. See `.impeccable.md` and `apps/web/AGENTS.md` — gameplay above is unchanged by chrome.
 
 ## Privacy / anti-spoiler
 
 - Clients never download the full edge list up front.
-- Reveals are paid, per-article, server-validated hints only.
+- Hints are paid (budgeted), per-article, server-validated neighbor lists only — no relationship spoilers on hints.
 - Optimal path is only returned on complete.
+- Relationship labels appear only after a successful confirm.

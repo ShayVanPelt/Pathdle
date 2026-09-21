@@ -12,9 +12,18 @@ public sealed record PuzzleNode(
     string Title,
     double X,
     double Y,
-    NodeKind Kind);
+    NodeKind Kind,
+    string? Description = null);
 
-public sealed record PuzzleEdge(string From, string To);
+/// <summary>
+/// Undirected playable edge justified by a shared group.
+/// Stored once with an arbitrary endpoint order; lookups use <see cref="DailyPuzzle.UndirectedEdgeKey"/>.
+/// </summary>
+public sealed record PuzzleEdge(
+    string From,
+    string To,
+    string? GroupId = null,
+    string? GroupLabel = null);
 
 public sealed class DailyPuzzle
 {
@@ -35,9 +44,18 @@ public sealed class DailyPuzzle
     public DateTimeOffset CreatedAt { get; init; }
 
     public HashSet<string> EdgeKeySet =>
-        Edges.Select(e => EdgeKey(e.From, e.To)).ToHashSet(StringComparer.Ordinal);
+        Edges.Select(e => UndirectedEdgeKey(e.From, e.To)).ToHashSet(StringComparer.Ordinal);
 
-    public static string EdgeKey(string from, string to) => $"{from}->{to}";
+    public PuzzleEdge? FindEdge(string a, string b)
+    {
+        var key = UndirectedEdgeKey(a, b);
+        return Edges.FirstOrDefault(e =>
+            string.Equals(UndirectedEdgeKey(e.From, e.To), key, StringComparison.Ordinal));
+    }
+
+    /// <summary>Canonical undirected key (lexicographic endpoint order).</summary>
+    public static string UndirectedEdgeKey(string a, string b) =>
+        string.CompareOrdinal(a, b) <= 0 ? $"{a}|{b}" : $"{b}|{a}";
 }
 
 public enum GameStatus
@@ -55,13 +73,15 @@ public sealed class PlayerGame
     public GameStatus Status { get; set; } = GameStatus.Active;
     public List<PuzzleEdge> DiscoveredEdges { get; set; } = [];
     /// <summary>
-    /// Visual-only outbound hints from reveals. Not part of the player's path until confirmed by a successful drag.
+    /// Visual-only neighbor hints from reveals (no group labels). Not path until confirmed by drag.
     /// </summary>
     public List<PuzzleEdge> HintEdges { get; set; } = [];
     public List<AttemptedEdge> AttemptedEdges { get; set; } = [];
     public List<string> PlayerPath { get; set; } = [];
-    /// <summary>Article ids for which outbound neighbors have been revealed.</summary>
+    /// <summary>Article ids for which neighbors have been revealed (paid once).</summary>
     public List<string> RevealedArticleIds { get; set; } = [];
+    /// <summary>Number of paid hint reveals used (max 3 per game).</summary>
+    public int HintsUsed { get; set; }
     public int Score { get; set; }
     public int ConnectionCount { get; set; }
     public DateTimeOffset StartedAt { get; init; } = DateTimeOffset.UtcNow;

@@ -7,12 +7,13 @@ ASP.NET Core minimal APIs, C#. Projects: `Pathdle.Api`, `Pathdle.Application`, `
 ## Rules
 
 - Public puzzle DTOs: nodes + layout + start/target only — **strip `edges` and `optimal_path`**.
-- Validate connection attempts server-side against the published edge set.
-- Reveal endpoint returns **outbound hint edges only** (not path discoveries). Player must still drag to confirm.
-- Scoring: see `ScoringRules` (+100 link attempt, +75 reveal hint). Lower score is better.
+- Edges are **undirected** shared-group links; validate attempts server-side against the published edge set.
+- On success, return `groupId` / `groupLabel`; discovered edges include labels; hints never do.
+- Reveal returns **all neighbors** as unlabeled hint edges. Paid once per article; max **3** paid hints (`hints_used`). Re-show is free.
+- Scoring: +100 success, +200 miss, +75 paid hint. Lower is better.
 - Require `X-Player-Key` for game mutations and reads of player state.
 - Puzzle day = UTC `DateOnly`.
-- **Local / Cloud Run** use Postgres (`Pathdle:Storage=Postgres`). Production JSON defaults to `InMemory` until Cloud Run sets `Pathdle__Storage=Postgres` + `ConnectionStrings__Postgres` (Secret Manager). See `docs/deploy-cloud-run.md`.
+- **Local / Cloud Run** use Postgres (`Pathdle:Storage=Postgres`). Production JSON defaults to `InMemory` until Cloud Run sets `Pathdle__Storage=Postgres` + `ConnectionStrings__Postgres`.
 - Do not call Neo4j from request handlers.
 
 ## Endpoints
@@ -31,14 +32,9 @@ ASP.NET Core minimal APIs, C#. Projects: `Pathdle.Api`, `Pathdle.Application`, `
 ## Local
 
 ```bash
-# 1) Copy root env and set Supabase (or Docker) connection
 cp .env.example .env
-# edit .env → ConnectionStrings__Postgres password
-
-# 2) Optional local Postgres
-docker compose up -d postgres
-
-# 3) API
+# edit ConnectionStrings__Postgres
+docker compose up -d postgres   # optional
 dotnet run --project apps/api/Pathdle.Api --launch-profile http
 ```
 
@@ -46,12 +42,4 @@ dotnet run --project apps/api/Pathdle.Api --launch-profile http
 
 ## Cloud Run
 
-```bash
-# From monorepo root — see docs/deploy-cloud-run.md
-docker build -f apps/api/Dockerfile -t pathdle-api .
-# or: .\infra\cloud\deploy-api.ps1
-```
-
-Container listens on **8080**. Required env: `Pathdle__Storage=Postgres`, `ConnectionStrings__Postgres`, `Cors__AllowedOrigins`.
-
-One monorepo `.env` at the repo root (gitignored). Do not put secrets in `apps/api/Pathdle.Api/.env`.
+See `docs/deploy-cloud-run.md`. Container listens on **8080**.

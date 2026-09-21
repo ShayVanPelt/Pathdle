@@ -13,6 +13,7 @@ public sealed class PostgresGameRepository(NpgsqlDataSource dataSource) : IGameR
             """
             select id, daily_puzzle_id, player_key, status, discovered_edges, hint_edges,
                    attempted_edges, player_path, score, connection_count, reveals,
+                   coalesce(hints_used, 0) as hints_used,
                    started_at, completed_at
             from player_games
             where id = @id
@@ -38,6 +39,7 @@ public sealed class PostgresGameRepository(NpgsqlDataSource dataSource) : IGameR
             """
             select id, daily_puzzle_id, player_key, status, discovered_edges, hint_edges,
                    attempted_edges, player_path, score, connection_count, reveals,
+                   coalesce(hints_used, 0) as hints_used,
                    started_at, completed_at
             from player_games
             where daily_puzzle_id = @puzzle_id and player_key = @player_key
@@ -61,12 +63,12 @@ public sealed class PostgresGameRepository(NpgsqlDataSource dataSource) : IGameR
             """
             insert into player_games (
               id, daily_puzzle_id, player_key, status, discovered_edges, hint_edges,
-              attempted_edges, player_path, score, connection_count, reveals,
+              attempted_edges, player_path, score, connection_count, reveals, hints_used,
               started_at, completed_at
             ) values (
               @id, @daily_puzzle_id, @player_key, @status,
               @discovered_edges::jsonb, @hint_edges::jsonb, @attempted_edges::jsonb,
-              @player_path::jsonb, @score, @connection_count, @reveals::jsonb,
+              @player_path::jsonb, @score, @connection_count, @reveals::jsonb, @hints_used,
               @started_at, @completed_at
             )
             """,
@@ -89,6 +91,7 @@ public sealed class PostgresGameRepository(NpgsqlDataSource dataSource) : IGameR
               score = @score,
               connection_count = @connection_count,
               reveals = @reveals::jsonb,
+              hints_used = @hints_used,
               completed_at = @completed_at
             where id = @id
             """,
@@ -109,10 +112,14 @@ public sealed class PostgresGameRepository(NpgsqlDataSource dataSource) : IGameR
         cmd.Parameters.AddWithValue("status", PostgresJson.FormatStatus(game.Status));
         cmd.Parameters.AddWithValue(
             "discovered_edges",
-            PostgresJson.Serialize(game.DiscoveredEdges.Select(e => new EdgeRow(e.From, e.To)).ToList()));
+            PostgresJson.Serialize(
+                game.DiscoveredEdges
+                    .Select(e => new EdgeRow(e.From, e.To, e.GroupId, e.GroupLabel))
+                    .ToList()));
         cmd.Parameters.AddWithValue(
             "hint_edges",
-            PostgresJson.Serialize(game.HintEdges.Select(e => new EdgeRow(e.From, e.To)).ToList()));
+            PostgresJson.Serialize(
+                game.HintEdges.Select(e => new EdgeRow(e.From, e.To)).ToList()));
         cmd.Parameters.AddWithValue(
             "attempted_edges",
             PostgresJson.Serialize(
@@ -123,6 +130,7 @@ public sealed class PostgresGameRepository(NpgsqlDataSource dataSource) : IGameR
         cmd.Parameters.AddWithValue("score", game.Score);
         cmd.Parameters.AddWithValue("connection_count", game.ConnectionCount);
         cmd.Parameters.AddWithValue("reveals", PostgresJson.Serialize(game.RevealedArticleIds));
+        cmd.Parameters.AddWithValue("hints_used", game.HintsUsed);
         cmd.Parameters.AddWithValue("started_at", game.StartedAt);
         cmd.Parameters.AddWithValue("completed_at", (object?)game.CompletedAt ?? DBNull.Value);
     }
@@ -131,7 +139,7 @@ public sealed class PostgresGameRepository(NpgsqlDataSource dataSource) : IGameR
     {
         var discovered = PostgresJson
             .Deserialize<List<EdgeRow>>(reader.GetString(reader.GetOrdinal("discovered_edges")), [])
-            .Select(e => new PuzzleEdge(e.From, e.To))
+            .Select(e => new PuzzleEdge(e.From, e.To, e.GroupId, e.GroupLabel))
             .ToList();
         var hints = PostgresJson
             .Deserialize<List<EdgeRow>>(reader.GetString(reader.GetOrdinal("hint_edges")), [])
@@ -160,6 +168,7 @@ public sealed class PostgresGameRepository(NpgsqlDataSource dataSource) : IGameR
             AttemptedEdges = attempted,
             PlayerPath = path,
             RevealedArticleIds = reveals,
+            HintsUsed = reader.GetInt32(reader.GetOrdinal("hints_used")),
             Score = reader.GetInt32(reader.GetOrdinal("score")),
             ConnectionCount = reader.GetInt32(reader.GetOrdinal("connection_count")),
             StartedAt = reader.GetFieldValue<DateTimeOffset>(reader.GetOrdinal("started_at")),

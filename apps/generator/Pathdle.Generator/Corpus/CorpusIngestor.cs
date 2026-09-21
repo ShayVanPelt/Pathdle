@@ -1,268 +1,389 @@
 namespace Pathdle.Generator.Corpus;
 
-internal sealed class CorpusIngestor(
-    MediaWikiClient wiki,
-    Neo4jCorpusStore store)
+/// <summary>
+/// Builds Entity/Group/IN_GROUP/SHARES_GROUP corpus from Wikidata (or a local demo graph).
+/// </summary>
+internal sealed class CorpusIngestor(WikidataClient wikidata, Neo4jCorpusStore store)
 {
-    /// <summary>
-    /// High-signal edges that should survive ingest when both endpoints are kept.
-    /// Used as a post-write fidelity report (Wikipedia has it → Neo4j must too).
-    /// </summary>
-    private static readonly (string From, string To)[] CanaryEdges =
-    [
-        ("Albert_Einstein", "Physics"),
-        ("Albert_Einstein", "Relativity"),
-        ("Physics", "Mathematics"),
-        ("Mathematics", "Geometry"),
-        ("Nintendo", "Video_game"),
-        ("Japan", "Tokyo"),
-        ("United_States", "Washington,_D.C."),
-        ("World_War_II", "Germany"),
-        ("Computer_science", "Algorithm"),
-        ("Biology", "DNA"),
-    ];
-
     public async Task IngestAsync(
-        string seedsPath,
+        string seedEntitiesPath,
         string corpusVersion,
-        int maxArticles,
+        int maxEntities,
         CancellationToken ct,
-        int scoutPages = 6,
-        int inducePages = 0)
+        bool demoOnly = false)
     {
-        var seeds = (await File.ReadAllLinesAsync(seedsPath, ct))
-            .Select(l => l.Trim())
-            .Where(l => !string.IsNullOrWhiteSpace(l) && !l.StartsWith('#'))
-            .Select(MediaWikiClient.NormalizeId)
-            .Where(id => id is not null && !IsJunkArticle(id))
-            .Cast<string>()
-            .Distinct(StringComparer.Ordinal)
-            .Take(maxArticles)
-            .ToList();
-
-        Console.WriteLine(
-            $"Building induced corpus from {seeds.Count} curated seeds (max={maxArticles}).");
-        Console.WriteLine(
-            $"  scoutPages={scoutPages}×500, inducePages={(inducePages <= 0 ? "unlimited" : $"{inducePages}×500")}.");
-
         await store.EnsureSchemaAsync(ct);
         await store.ClearCorpusAsync(ct);
 
-        var titles = seeds.ToDictionary(
-            id => id,
-            MediaWikiClient.TitleFromId,
-            StringComparer.Ordinal);
-
-        var seedSet = titles.Keys.ToHashSet(StringComparer.Ordinal);
-        var scoutLinks = new Dictionary<string, List<string>>(StringComparer.Ordinal);
-
-        // Scout pass: deep enough to catch mid-alphabet neighbors for expansions
-        // (Physics is ~page 2 on Einstein; denser scout → better keep set).
-        Console.WriteLine($"Scouting outbound links for seeds (up to {scoutPages}×500 each)…");
-        foreach (var chunk in seeds.Chunk(8))
+        if (demoOnly)
         {
-            var batch = chunk.ToList();
-            Console.WriteLine($"  scout batch ({batch[0]} …) size={batch.Count}");
-            var fetched = await wiki.GetOutboundLinksBatchAsync(batch, ct, scoutPages);
-            foreach (var (from, links) in fetched)
-            {
-                scoutLinks[from] = links;
-            }
-
-            await Task.Delay(200, ct);
+            await IngestDemoAsync(corpusVersion, ct);
+            return;
         }
 
-        if (titles.Count < maxArticles)
+        var seedIds = await LoadSeedIdsAsync(seedEntitiesPath, ct);
+        Console.WriteLine($"Seed entities: {seedIds.Count}");
+
+        // Expand via SPARQL for a few allowlisted classes (bounded).
+        var perClass = Math.Max(50, maxEntities / Math.Max(1, GroupVocabulary.AllowedInstanceClasses.Count));
+        var discovered = new HashSet<string>(seedIds, StringComparer.Ordinal);
+        foreach (var classId in GroupVocabulary.AllowedInstanceClasses.Take(12))
         {
-            var overlapScores = new Dictionary<string, int>(StringComparer.Ordinal);
-            foreach (var links in scoutLinks.Values)
+            if (discovered.Count >= maxEntities) break;
+            try
             {
-                foreach (var to in links)
+                var found = await wikidata.SearchEntityIdsByInstanceOfAsync(classId, perClass, ct);
+                foreach (var id in found)
                 {
-                    if (seedSet.Contains(to) || IsJunkArticle(to)) continue;
-                    overlapScores[to] = overlapScores.GetValueOrDefault(to) + 1;
+                    discovered.Add(id);
+                    if (discovered.Count >= maxEntities) break;
                 }
+
+                Console.WriteLine($"  P31={classId}: +{found.Count} (total {discovered.Count})");
             }
-
-            var expansions = overlapScores
-                .Where(kv => kv.Value >= 2)
-                .OrderByDescending(kv => kv.Value)
-                .ThenBy(kv => kv.Key, StringComparer.Ordinal)
-                .Select(kv => kv.Key)
-                .Where(id => !titles.ContainsKey(id))
-                .Take(maxArticles - titles.Count)
-                .ToList();
-
-            Console.WriteLine($"Expanding with {expansions.Count} high-overlap neighbors…");
-            foreach (var id in expansions)
+            catch (Exception ex)
             {
-                titles[id] = MediaWikiClient.TitleFromId(id);
+                Console.WriteLine($"  SPARQL skip {classId}: {ex.Message}");
             }
         }
 
-        var keep = titles.Keys.ToHashSet(StringComparer.Ordinal);
+        var take = discovered.Take(maxEntities).ToList();
+        Console.WriteLine($"Fetching claims for {take.Count} entities…");
+        var entities = await wikidata.GetEntitiesAsync(take, ct);
 
-        // Seed edge map with scout intersections so early alphabet hubs aren't empty
-        // if the later induce pass partially fails under rate limits.
-        var allLinks = new Dictionary<string, HashSet<string>>(StringComparer.Ordinal);
-        foreach (var id in keep)
-        {
-            allLinks[id] = new HashSet<string>(StringComparer.Ordinal);
-        }
-
-        foreach (var (from, links) in scoutLinks)
-        {
-            if (!allLinks.TryGetValue(from, out var set)) continue;
-            foreach (var to in links)
-            {
-                if (keep.Contains(to) && !string.Equals(from, to, StringComparison.Ordinal))
-                    set.Add(to);
-            }
-        }
-
-        // Induce pass: paginate every kept article; retain only keep→keep edges.
-        // inducePages=0 → unlimited (alphabetical early-stop still applies with keep filter).
-        var induceLabel = inducePages <= 0 ? "unlimited" : $"{inducePages}×500";
-        Console.WriteLine(
-            $"Inducing keep→keep edges for {keep.Count} articles ({induceLabel} each)…");
-        var failed = new List<string>();
-        var done = 0;
-        foreach (var chunk in keep.OrderBy(x => x, StringComparer.Ordinal).Chunk(8))
-        {
-            var batch = chunk.ToList();
-            var fetched = await wiki.GetOutboundLinksBatchAsync(batch, ct, inducePages, keep);
-            foreach (var (from, links) in fetched)
-            {
-                if (!allLinks.TryGetValue(from, out var set)) continue;
-                if (links.Count == 0 && set.Count == 0) failed.Add(from);
-                foreach (var to in links)
-                {
-                    if (!string.Equals(from, to, StringComparison.Ordinal))
-                        set.Add(to);
-                }
-            }
-
-            done += batch.Count;
-            if (done % 40 == 0 || done >= keep.Count)
-            {
-                Console.WriteLine($"  induced {done}/{keep.Count}");
-            }
-
-            await Task.Delay(150, ct);
-        }
-
-        // Retry every empty / failed article (seeds first — they matter most for canaries).
-        var retryIds = allLinks
-            .Where(kv => kv.Value.Count == 0)
-            .Select(kv => kv.Key)
-            .Concat(failed)
+        // Collect group value labels.
+        var valueIds = entities.Values
+            .SelectMany(e => e.Memberships.Select(m => m.ValueId))
             .Distinct(StringComparer.Ordinal)
-            .OrderBy(id => seedSet.Contains(id) ? 0 : 1)
-            .ThenBy(x => x, StringComparer.Ordinal)
+            .Where(v => !GroupVocabulary.DeniedValueIds.Contains(v))
             .ToList();
+        Console.WriteLine($"Resolving {valueIds.Count} group value labels…");
+        var labels = await wikidata.GetLabelsAsync(valueIds, ct);
 
-        if (retryIds.Count > 0)
-        {
-            Console.WriteLine($"Retrying {retryIds.Count} articles with empty/failed link fetches…");
-            var ri = 0;
-            foreach (var id in retryIds)
-            {
-                ri++;
-                try
-                {
-                    var links = await wiki.GetMainNamespaceLinksAsync(id, inducePages, ct, keep);
-                    foreach (var to in links)
-                    {
-                        if (!string.Equals(id, to, StringComparison.Ordinal))
-                            allLinks[id].Add(to);
-                    }
-                }
-                catch (Exception ex)
-                {
-                    Console.WriteLine($"  warn: retry {id} failed: {ex.Message}");
-                }
-
-                if (ri % 25 == 0 || ri == retryIds.Count)
-                    Console.WriteLine($"  retry {ri}/{retryIds.Count}");
-
-                await Task.Delay(120, ct);
-            }
-        }
-
-        var internalEdges = new HashSet<(string From, string To)>();
-        foreach (var (from, links) in allLinks)
-        {
-            foreach (var to in links)
-            {
-                if (keep.Contains(to))
-                    internalEdges.Add((from, to));
-            }
-        }
-
-        var withOut = allLinks.Count(kv => kv.Value.Count > 0);
-        var zeroOut = allLinks.Count - withOut;
-        Console.WriteLine(
-            $"Writing {titles.Count} articles, {internalEdges.Count} edges to Neo4j "
-            + $"(articles with outbound={withOut}, zeroOutbound={zeroOut})…");
-
-        ReportCanaries(keep, internalEdges);
-
-        if (internalEdges.Count < titles.Count * 2)
-        {
-            Console.WriteLine(
-                "  note: sparse induced graph — add more related seeds or raise max-articles.");
-        }
-
-        await store.UpsertArticlesAndEdgesAsync(titles, internalEdges, ct);
-        await store.WriteCorpusMetaAsync(corpusVersion, titles.Count, internalEdges.Count, ct);
-        Console.WriteLine($"Corpus '{corpusVersion}' ready.");
+        await BuildAndWriteAsync(
+            corpusVersion,
+            entities.Values.ToList(),
+            labels,
+            seedIds.ToHashSet(StringComparer.Ordinal),
+            ct);
     }
 
-    private static void ReportCanaries(
-        HashSet<string> keep,
-        HashSet<(string From, string To)> edges)
+    private async Task IngestDemoAsync(string corpusVersion, CancellationToken ct)
     {
-        Console.WriteLine("Canary edges (both endpoints must be in keep set):");
-        var ok = 0;
-        var missing = 0;
-        var skipped = 0;
+        Console.WriteLine("Demo ingest: writing hand-authored Dell→Vitamin C group graph to Neo4j.");
+        var seed = DemoCorpus.Build();
+        await store.UpsertCorpusAsync(
+            seed.Entities,
+            seed.Groups,
+            seed.Memberships,
+            seed.ShareEdges,
+            ct);
+        await store.WriteCorpusMetaAsync(
+            corpusVersion,
+            seed.Entities.Count,
+            seed.Groups.Count,
+            seed.ShareEdges.Count,
+            ct);
+        Console.WriteLine(
+            $"Demo corpus ready: {seed.Entities.Count} entities, {seed.Groups.Count} groups, {seed.ShareEdges.Count} edges.");
+    }
 
-        foreach (var (from, to) in CanaryEdges)
+    private async Task BuildAndWriteAsync(
+        string corpusVersion,
+        IReadOnlyList<WikidataEntity> entities,
+        IReadOnlyDictionary<string, string> valueLabels,
+        IReadOnlySet<string> seedIds,
+        CancellationToken ct)
+    {
+        // Group → member set
+        var groupMembers = new Dictionary<string, HashSet<string>>(StringComparer.Ordinal);
+        var groupMeta = new Dictionary<string, (string Property, string ValueId)>(StringComparer.Ordinal);
+
+        foreach (var entity in entities)
         {
-            var fromKept = keep.Contains(from);
-            var toKept = keep.Contains(to);
-            if (!fromKept || !toKept)
+            // Fame gate: English Wikipedia + enough sitelinks (seeds always kept if labeled).
+            var isSeed = seedIds.Contains(entity.Id);
+            if (!isSeed
+                && (!entity.HasEnWiki || entity.SitelinkCount < GroupVocabulary.MinSitelinks))
             {
-                skipped++;
-                var missingEnds = new List<string>();
-                if (!fromKept) missingEnds.Add(from);
-                if (!toKept) missingEnds.Add(to);
-                Console.WriteLine(
-                    $"  SKIP  {from}→{to} (not in keep: {string.Join(", ", missingEnds)})");
                 continue;
             }
 
-            if (edges.Contains((from, to)))
+            foreach (var (property, valueId) in entity.Memberships)
             {
-                ok++;
-                Console.WriteLine($"  OK    {from}→{to}");
+                if (GroupVocabulary.DeniedValueIds.Contains(valueId)) continue;
+                var gid = GroupVocabulary.GroupId(property, valueId);
+                if (!groupMembers.TryGetValue(gid, out var set))
+                {
+                    set = new HashSet<string>(StringComparer.Ordinal);
+                    groupMembers[gid] = set;
+                    groupMeta[gid] = (property, valueId);
+                }
+
+                set.Add(entity.Id);
             }
-            else
+        }
+
+        var total = entities.Count;
+        var eligibleGroups = new List<CorpusGroupWrite>();
+        var eligibleGroupIds = new HashSet<string>(StringComparer.Ordinal);
+
+        foreach (var (gid, members) in groupMembers)
+        {
+            if (members.Count < GroupVocabulary.MinGroupSize
+                || members.Count > GroupVocabulary.MaxGroupSize)
             {
-                missing++;
-                Console.WriteLine($"  MISS  {from}→{to}  ← Wikipedia-class link absent from Neo4j");
+                continue;
+            }
+
+            var (property, valueId) = groupMeta[gid];
+            var label = valueLabels.TryGetValue(valueId, out var l) ? l : valueId;
+            var frequency = (double)members.Count / total;
+            var rarity = GroupVocabulary.Rarity(members.Count, total);
+            eligibleGroups.Add(new CorpusGroupWrite(
+                gid, label, property, valueId, frequency, rarity, members.Count));
+            eligibleGroupIds.Add(gid);
+        }
+
+        // Keep entities with ≥2 eligible groups.
+        var entityWrites = new List<CorpusEntityWrite>();
+        var memberships = new List<(string EntityId, string GroupId)>();
+        var entityEligibleGroups = new Dictionary<string, List<string>>(StringComparer.Ordinal);
+        foreach (var entity in entities)
+        {
+            var isSeed = seedIds.Contains(entity.Id);
+            if (!isSeed
+                && (!entity.HasEnWiki || entity.SitelinkCount < GroupVocabulary.MinSitelinks))
+            {
+                continue;
+            }
+
+            var groups = entity.Memberships
+                .Select(m => GroupVocabulary.GroupId(m.Property, m.ValueId))
+                .Where(eligibleGroupIds.Contains)
+                .Distinct(StringComparer.Ordinal)
+                .ToList();
+            if (groups.Count < 2) continue;
+            // Skip entities Wikidata returned without an English label (title == QID).
+            if (!Generation.TitleQuality.HasPlayableTitle(entity.Title, entity.Id)) continue;
+
+            // Popularity = Wikipedia sitelink count (fame). Seeds get a floor boost.
+            var popularity = Math.Max(entity.SitelinkCount, isSeed ? GroupVocabulary.MinSitelinks : 0);
+            if (isSeed) popularity = Math.Max(popularity, 40);
+
+            entityWrites.Add(new CorpusEntityWrite(
+                entity.Id,
+                entity.Title,
+                popularity,
+                entity.Description,
+                isSeed));
+            entityEligibleGroups[entity.Id] = groups;
+            foreach (var g in groups)
+            {
+                memberships.Add((entity.Id, g));
+            }
+        }
+
+        var groupById = eligibleGroups.ToDictionary(g => g.Id, StringComparer.Ordinal);
+        var shareEdges = new List<CorpusShareEdgeWrite>();
+        var seenPairs = new HashSet<string>(StringComparer.Ordinal);
+
+        foreach (var (gid, members) in groupMembers)
+        {
+            if (!eligibleGroupIds.Contains(gid)) continue;
+            if (!groupById.TryGetValue(gid, out var g)) continue;
+            var list = members.Where(entityEligibleGroups.ContainsKey).OrderBy(x => x, StringComparer.Ordinal).ToList();
+            for (var i = 0; i < list.Count; i++)
+            {
+                for (var j = i + 1; j < list.Count; j++)
+                {
+                    var a = list[i];
+                    var b = list[j];
+                    var key = CorpusGraph.UndirectedKey(a, b);
+                    if (!seenPairs.Add(key))
+                    {
+                        // Keep highest-rarity group for the pair.
+                        var existing = shareEdges.FindIndex(e =>
+                            CorpusGraph.UndirectedKey(e.A, e.B) == key);
+                        if (existing >= 0 && shareEdges[existing].Rarity < g.Rarity)
+                        {
+                            shareEdges[existing] = new CorpusShareEdgeWrite(
+                                a, b, g.Id, g.Label, g.Rarity);
+                        }
+
+                        continue;
+                    }
+
+                    shareEdges.Add(new CorpusShareEdgeWrite(a, b, g.Id, g.Label, g.Rarity));
+                }
             }
         }
 
         Console.WriteLine(
-            $"  canary summary: ok={ok}, miss={missing}, skip={skipped} (miss = wiki fidelity gap)");
+            $"Writing {entityWrites.Count} entities, {eligibleGroups.Count} groups, {shareEdges.Count} share edges…");
+
+        await store.UpsertCorpusAsync(entityWrites, eligibleGroups, memberships, shareEdges, ct);
+        await store.WriteCorpusMetaAsync(
+            corpusVersion,
+            entityWrites.Count,
+            eligibleGroups.Count,
+            shareEdges.Count,
+            ct);
+
+        Console.WriteLine("Ingest complete.");
     }
 
-    private static bool IsJunkArticle(string id) =>
-        id.EndsWith("_(identifier)", StringComparison.OrdinalIgnoreCase)
-        || id.StartsWith("List_of_", StringComparison.OrdinalIgnoreCase)
-        || id.Equals("ISBN", StringComparison.OrdinalIgnoreCase)
-        || id.Equals("DOI", StringComparison.OrdinalIgnoreCase)
-        || id.Equals("ISSN", StringComparison.OrdinalIgnoreCase)
-        || id.Equals("PMID", StringComparison.OrdinalIgnoreCase);
+    private static async Task<List<string>> LoadSeedIdsAsync(string path, CancellationToken ct)
+    {
+        var lines = await File.ReadAllLinesAsync(path, ct);
+        var ids = new List<string>();
+        foreach (var raw in lines)
+        {
+            var line = raw.Trim();
+            if (line.Length == 0 || line.StartsWith('#')) continue;
+
+            // Allow "Q312  # Apple Inc." — take only the leading QID token.
+            var token = line.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries)[0];
+            var hash = token.IndexOf('#');
+            if (hash >= 0) token = token[..hash];
+            token = token.Trim();
+            if (token.Length > 1
+                && token[0] == 'Q'
+                && token.Skip(1).All(char.IsDigit))
+            {
+                ids.Add(token);
+            }
+        }
+
+        return ids.Distinct(StringComparer.Ordinal).ToList();
+    }
+}
+
+/// <summary>Offline demo corpus mirroring the API hand-authored seed.</summary>
+internal static class DemoCorpus
+{
+    public static (
+        List<CorpusEntityWrite> Entities,
+        List<CorpusGroupWrite> Groups,
+        List<(string EntityId, string GroupId)> Memberships,
+        List<CorpusShareEdgeWrite> ShareEdges) Build()
+    {
+        var entities = new[]
+        {
+            ("Dell", 8), ("Apple", 14), ("Orange", 10), ("Vitamin_C", 9),
+            ("Microsoft", 12), ("Google", 11), ("Sony", 7),
+            ("Banana", 6), ("Pear", 5), ("Lemon", 6), ("HP", 5), ("Intel", 7),
+            ("iPhone", 8), ("Macintosh", 4),
+            ("California", 9), ("Cupertino", 3), ("Citrus", 4),
+            ("Ascorbic_acid", 2), ("Scurvy", 2),
+            ("Kiwi_fruit", 5), ("Strawberry", 5), ("Samsung", 6),
+            ("PlayStation", 5), ("Windows", 6),
+            ("Android", 6), ("Steve_Jobs", 7), ("Tim_Cook", 4),
+            ("Fruit_salad", 3), ("Orange_juice", 4),
+            ("Broccoli", 3), ("Pepper", 3), ("Nintendo", 8)
+        }.Select(t => new CorpusEntityWrite(t.Item1, t.Item1.Replace('_', ' '), t.Item2)).ToList();
+
+
+        var groups = new List<CorpusGroupWrite>
+        {
+            G("industry:tech_company", "Technology company", "P452", "tech", 12),
+            G("category:fruit", "Fruit", "P31", "fruit", 10),
+            G("nutrient:vitamin_c", "Contains vitamin C", "P2868", "vitc", 8),
+            G("botany:citrus", "Citrus fruit", "P279", "citrus", 4),
+            G("maker:apple_inc", "Made by Apple", "P176", "apple", 4),
+            G("org:apple_leadership", "Apple leadership", "P112", "apple_lead", 4),
+            G("hq:cupertino", "Based in Cupertino", "P159", "cup", 3),
+            G("place:california", "Located in California", "P131", "ca", 4),
+            G("platform:os_vendor", "Operating system vendor", "P400", "os", 3),
+            G("franchise:sony_gaming", "Sony gaming", "P179", "sony", 3),
+            G("category:game_console", "Game console maker", "P31", "console", 4),
+            G("platform:android_devices", "Android devices", "P400", "android", 3),
+            G("dish:fruit_salad", "Fruit salad ingredient", "P186", "salad", 4),
+            G("product:orange_juice", "Orange juice", "P186", "oj", 3),
+            G("chem:ascorbic", "Also known as", "P460", "asc", 3),
+            G("medicine:scurvy", "Prevents scurvy", "P769", "scurvy", 3),
+            G("category:vegetable", "Vegetable", "P31", "veg", 3),
+        };
+
+        // Membership + share edges derived from the same hand seed relationships.
+        var share = new List<(string A, string B, string G)>
+        {
+            ("Dell", "Apple", "industry:tech_company"),
+            ("Apple", "Orange", "category:fruit"),
+            ("Orange", "Vitamin_C", "nutrient:vitamin_c"),
+            ("Dell", "Microsoft", "industry:tech_company"),
+            ("Dell", "HP", "industry:tech_company"),
+            ("Apple", "Microsoft", "industry:tech_company"),
+            ("Apple", "Google", "industry:tech_company"),
+            ("Apple", "Sony", "industry:tech_company"),
+            ("Microsoft", "Google", "industry:tech_company"),
+            ("Microsoft", "Sony", "industry:tech_company"),
+            ("Google", "Samsung", "industry:tech_company"),
+            ("Sony", "Samsung", "industry:tech_company"),
+            ("HP", "Intel", "industry:tech_company"),
+            ("Intel", "Microsoft", "industry:tech_company"),
+            ("Apple", "Banana", "category:fruit"),
+            ("Apple", "Pear", "category:fruit"),
+            ("Orange", "Banana", "category:fruit"),
+            ("Orange", "Pear", "category:fruit"),
+            ("Orange", "Lemon", "category:fruit"),
+            ("Banana", "Pear", "category:fruit"),
+            ("Banana", "Kiwi_fruit", "category:fruit"),
+            ("Pear", "Kiwi_fruit", "category:fruit"),
+            ("Lemon", "Kiwi_fruit", "category:fruit"),
+            ("Kiwi_fruit", "Strawberry", "category:fruit"),
+            ("Strawberry", "Orange", "category:fruit"),
+            ("Lemon", "Vitamin_C", "nutrient:vitamin_c"),
+            ("Kiwi_fruit", "Vitamin_C", "nutrient:vitamin_c"),
+            ("Strawberry", "Vitamin_C", "nutrient:vitamin_c"),
+            ("Broccoli", "Vitamin_C", "nutrient:vitamin_c"),
+            ("Pepper", "Vitamin_C", "nutrient:vitamin_c"),
+            ("Orange_juice", "Vitamin_C", "nutrient:vitamin_c"),
+            ("Orange", "Lemon", "botany:citrus"),
+            ("Orange", "Citrus", "botany:citrus"),
+            ("Lemon", "Citrus", "botany:citrus"),
+            ("Apple", "iPhone", "maker:apple_inc"),
+            ("Apple", "Macintosh", "maker:apple_inc"),
+            ("iPhone", "Macintosh", "maker:apple_inc"),
+            ("Apple", "Steve_Jobs", "org:apple_leadership"),
+            ("Apple", "Tim_Cook", "org:apple_leadership"),
+            ("Steve_Jobs", "Tim_Cook", "org:apple_leadership"),
+            ("Apple", "Cupertino", "hq:cupertino"),
+            ("Cupertino", "California", "place:california"),
+            ("Google", "California", "place:california"),
+            ("Microsoft", "Windows", "platform:os_vendor"),
+            ("Google", "Android", "platform:os_vendor"),
+            ("Sony", "PlayStation", "franchise:sony_gaming"),
+            ("Nintendo", "PlayStation", "category:game_console"),
+            ("Sony", "Nintendo", "category:game_console"),
+            ("Samsung", "Android", "platform:android_devices"),
+            ("Banana", "Fruit_salad", "dish:fruit_salad"),
+            ("Orange", "Fruit_salad", "dish:fruit_salad"),
+            ("Strawberry", "Fruit_salad", "dish:fruit_salad"),
+            ("Orange", "Orange_juice", "product:orange_juice"),
+            ("Ascorbic_acid", "Vitamin_C", "chem:ascorbic"),
+            ("Scurvy", "Vitamin_C", "medicine:scurvy"),
+            ("Broccoli", "Pepper", "category:vegetable"),
+        };
+
+        var groupLookup = groups.ToDictionary(g => g.Id, StringComparer.Ordinal);
+        var memberships = new HashSet<(string, string)>();
+        var shareEdges = new List<CorpusShareEdgeWrite>();
+        foreach (var (a, b, gid) in share)
+        {
+            var g = groupLookup[gid];
+            memberships.Add((a, gid));
+            memberships.Add((b, gid));
+            shareEdges.Add(new CorpusShareEdgeWrite(a, b, g.Id, g.Label, g.Rarity));
+        }
+
+        return (entities, groups, memberships.ToList(), shareEdges);
+
+        static CorpusGroupWrite G(string id, string label, string prop, string valueId, int members)
+        {
+            var freq = members / 32.0;
+            var rarity = GroupVocabulary.Rarity(members, 32);
+            return new CorpusGroupWrite(id, label, prop, valueId, freq, rarity, members);
+        }
+    }
 }

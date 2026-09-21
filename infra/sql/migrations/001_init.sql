@@ -13,10 +13,10 @@ create table daily_puzzles (
   -- { "id": "Albert_Einstein", "title": "Albert Einstein", "x": 0.12, "y": 0.34, "kind": "start" }
   nodes jsonb not null,
   -- SERVER ONLY. Never return the full set to clients.
-  -- [{ "from": "Albert_Einstein", "to": "Physics" }, ...]
+  -- [{ "from": "Dell", "to": "Apple", "groupId": "industry:tech", "groupLabel": "Technology company" }, ...]
   edges jsonb not null,
   -- SERVER ONLY until game complete.
-  -- ["Albert_Einstein", "Physics", "Mathematics", "Nintendo"]
+  -- ["Dell", "Apple", "Orange", "Vitamin_C"]
   optimal_path jsonb not null,
   optimal_length int not null,
   difficulty jsonb null,
@@ -44,8 +44,10 @@ create table player_games (
   -- Points spent / connection count for MVP leaderboard sorting.
   score int not null default 0,
   connection_count int not null default 0,
-  -- Article ids whose outbound neighbors have been revealed.
+  -- Article ids whose neighbors have been revealed.
   reveals jsonb not null default '[]'::jsonb,
+  -- Paid hint reveals used (max 3). Re-show is free.
+  hints_used int not null default 0,
   started_at timestamptz not null default now(),
   completed_at timestamptz null,
   unique (daily_puzzle_id, player_key)

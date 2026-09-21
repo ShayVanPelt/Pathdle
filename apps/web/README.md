@@ -32,7 +32,7 @@ Set in monorepo root `.env` (not committed):
 ## Product notes
 
 - Full-bleed SVG constellation; top instrument HUD (brand | path rail | score) — no side panels.
-- Labels inside node pills; circular display ring from API positions.
+- Labels inside node pills; filled constellation from API positions (START/TARGET opposite).
 - Nodes only at start — edges appear when the player discovers them.
 - Anonymous `player_key` in `localStorage` → `X-Player-Key` on game API calls.
 

@@ -131,13 +131,16 @@ public sealed class InMemoryGameRepository : IGameRepository
             DailyPuzzleId = game.DailyPuzzleId,
             PlayerKey = game.PlayerKey,
             Status = game.Status,
-            DiscoveredEdges = game.DiscoveredEdges.Select(e => new PuzzleEdge(e.From, e.To)).ToList(),
+            DiscoveredEdges = game.DiscoveredEdges
+                .Select(e => new PuzzleEdge(e.From, e.To, e.GroupId, e.GroupLabel))
+                .ToList(),
             HintEdges = game.HintEdges.Select(e => new PuzzleEdge(e.From, e.To)).ToList(),
             AttemptedEdges = game.AttemptedEdges
                 .Select(a => new AttemptedEdge(a.From, a.To, a.Success, a.AttemptedAt))
                 .ToList(),
             PlayerPath = [.. game.PlayerPath],
             RevealedArticleIds = [.. game.RevealedArticleIds],
+            HintsUsed = game.HintsUsed,
             Score = game.Score,
             ConnectionCount = game.ConnectionCount,
             StartedAt = game.StartedAt,

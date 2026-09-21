@@ -58,6 +58,12 @@ internal static class PostgresJson
         };
 }
 
-internal sealed record NodeRow(string Id, string Title, double X, double Y, string Kind);
-internal sealed record EdgeRow(string From, string To);
+internal sealed record NodeRow(
+    string Id,
+    string Title,
+    double X,
+    double Y,
+    string Kind,
+    string? Description = null);
+internal sealed record EdgeRow(string From, string To, string? GroupId = null, string? GroupLabel = null);
 internal sealed record AttemptRow(string From, string To, bool Success, DateTimeOffset AttemptedAt);

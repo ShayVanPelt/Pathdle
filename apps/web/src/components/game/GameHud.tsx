@@ -7,11 +7,13 @@ type Props = {
   brand: string;
   connectionCount: number;
   score: number;
+  hintsRemaining: number;
   path: string[];
   startId: string;
   targetId: string;
   startTitle: string;
   targetTitle: string;
+  titles?: Record<string, string>;
   selectedId: string | null;
   reachedTarget: boolean;
   onSelectNode: (id: string) => void;
@@ -64,11 +66,13 @@ export function GameHud({
   brand,
   connectionCount,
   score,
+  hintsRemaining,
   path,
   startId,
   targetId,
   startTitle,
   targetTitle,
+  titles,
   selectedId,
   reachedTarget,
   onSelectNode,
@@ -114,6 +118,15 @@ export function GameHud({
             {connectionCount}
           </p>
         </div>
+        <div className="w-px self-stretch bg-[var(--hud-border)]" aria-hidden />
+        <div className="text-right">
+          <p className="text-[0.55rem] font-semibold uppercase tracking-[0.2em] text-[var(--ink-dim)]">
+            Hints
+          </p>
+          <p className="font-[family-name:var(--font-display)] text-[1.5rem] leading-none text-[var(--hint)] sm:text-[2.15rem]">
+            {hintsRemaining}
+          </p>
+        </div>
       </div>
 
       {/* Path: full-width row on mobile; flex middle on desktop */}
@@ -124,6 +137,7 @@ export function GameHud({
           targetId={targetId}
           startTitle={startTitle}
           targetTitle={targetTitle}
+          titles={titles}
           selectedId={selectedId}
           reachedTarget={reachedTarget}
           onSelect={onSelectNode}

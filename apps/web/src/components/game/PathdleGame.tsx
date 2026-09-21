@@ -17,7 +17,7 @@ import { GameHud } from "./GameHud";
 import { HowToPlay } from "./HowToPlay";
 import { ResultsPanel } from "./ResultsPanel";
 
-const HELP_SEEN_KEY = "pathdle.howto_seen.v4";
+const HELP_SEEN_KEY = "pathdle.howto_seen.v5";
 
 export function PathdleGame() {
   const [game, setGame] = useState<GameState | null>(null);
@@ -56,6 +56,8 @@ export function PathdleGame() {
           ...state,
           revealedArticleIds: state.revealedArticleIds ?? [],
           hintEdges: state.hintEdges ?? [],
+          hintsUsed: state.hintsUsed ?? 0,
+          hintsRemaining: state.hintsRemaining ?? 3,
         });
         setSelectedId(state.startArticleId);
       } catch (err) {
@@ -111,6 +113,8 @@ export function PathdleGame() {
                 revealedArticleIds: response.revealedArticleIds ?? [],
                 connectionCount: response.connectionCount,
                 score: response.score,
+                hintsUsed: response.hintsUsed ?? prev.hintsUsed,
+                hintsRemaining: response.hintsRemaining ?? prev.hintsRemaining,
                 reachedTarget: response.reachedTarget,
               }
             : prev,
@@ -145,6 +149,8 @@ export function PathdleGame() {
                 revealedArticleIds: response.revealedArticleIds ?? [],
                 connectionCount: response.connectionCount,
                 score: response.score,
+                hintsUsed: response.hintsUsed ?? prev.hintsUsed,
+                hintsRemaining: response.hintsRemaining ?? prev.hintsRemaining,
                 reachedTarget: response.reachedTarget,
               }
             : prev,
@@ -234,7 +240,8 @@ export function PathdleGame() {
         highlightedNeighborIds={highlightedNeighborIds}
         selectedId={selectedId}
         menuNodeId={menuNodeId}
-        playLocked={game.status !== "active" || helpOpen || Boolean(result)}
+        playLocked={helpOpen || Boolean(result)}
+        hintsRemaining={game.hintsRemaining ?? 3}
         onSelectedChange={setSelectedId}
         onAttempt={onAttempt}
         onNodeClick={(id) => {
@@ -249,11 +256,13 @@ export function PathdleGame() {
         brand="Pathdle"
         connectionCount={game.connectionCount}
         score={game.score}
+        hintsRemaining={game.hintsRemaining ?? 3}
         path={game.playerPath}
         startId={startNode.id}
         targetId={targetNode.id}
         startTitle={startNode.title}
         targetTitle={targetNode.title}
+        titles={Object.fromEntries(game.nodes.map((n) => [n.id, n.title]))}
         selectedId={selectedId}
         reachedTarget={game.reachedTarget}
         onSelectNode={(id) => {
@@ -264,7 +273,11 @@ export function PathdleGame() {
       />
       <HowToPlay open={helpOpen} onClose={closeHelp} />
       {result && (
-        <ResultsPanel result={result} onClose={() => setResult(null)} />
+        <ResultsPanel
+          result={result}
+          nodes={game.nodes}
+          onClose={() => setResult(null)}
+        />
       )}
       {completing && !result && (
         <p className="pointer-events-none absolute bottom-28 left-1/2 z-30 -translate-x-1/2 pathdle-hud-chip rounded-full px-5 py-2.5 text-base text-[var(--ink-bright)]">

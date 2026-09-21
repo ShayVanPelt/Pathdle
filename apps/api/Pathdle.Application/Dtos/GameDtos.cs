@@ -1,5 +1,3 @@
-using Pathdle.Application.Models;
-
 namespace Pathdle.Application.Dtos;
 
 public sealed record PublicPuzzleDto(
@@ -15,7 +13,8 @@ public sealed record PuzzleNodeDto(
     string Title,
     double X,
     double Y,
-    string Kind);
+    string Kind,
+    string? Description = null);
 
 public sealed record GameStateDto(
     Guid GameId,
@@ -30,9 +29,18 @@ public sealed record GameStateDto(
     IReadOnlyList<string> RevealedArticleIds,
     int ConnectionCount,
     int Score,
+    int HintsUsed,
+    int HintsRemaining,
     bool ReachedTarget);
 
-public sealed record EdgeDto(string From, string To);
+/// <summary>
+/// Client edge. Group fields are set on discovered edges only — never on hints.
+/// </summary>
+public sealed record EdgeDto(
+    string From,
+    string To,
+    string? GroupId = null,
+    string? GroupLabel = null);
 
 public sealed record StartGameRequest(Guid? PuzzleId);
 
@@ -42,9 +50,13 @@ public sealed record AttemptResponse(
     bool Success,
     string FromId,
     string ToId,
+    string? GroupId,
+    string? GroupLabel,
     int PointsAdded,
     int ConnectionCount,
     int Score,
+    int HintsUsed,
+    int HintsRemaining,
     IReadOnlyList<EdgeDto> DiscoveredEdges,
     IReadOnlyList<EdgeDto> HintEdges,
     IReadOnlyList<string> PlayerPath,
@@ -61,6 +73,8 @@ public sealed record RevealResponse(
     int PointsAdded,
     int ConnectionCount,
     int Score,
+    int HintsUsed,
+    int HintsRemaining,
     IReadOnlyList<EdgeDto> DiscoveredEdges,
     IReadOnlyList<EdgeDto> HintEdges,
     IReadOnlyList<string> PlayerPath,

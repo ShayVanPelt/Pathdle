@@ -9,6 +9,7 @@ type Props = {
   targetId: string;
   startTitle: string;
   targetTitle: string;
+  titles?: Record<string, string>;
   selectedId: string | null;
   reachedTarget: boolean;
   onSelect: (id: string) => void;
@@ -100,6 +101,7 @@ export function ChartRail({
   targetId,
   startTitle,
   targetTitle,
+  titles,
   selectedId,
   reachedTarget,
   onSelect,
@@ -180,7 +182,7 @@ export function ChartRail({
               ? startTitle
               : isTarget
                 ? targetTitle
-                : articleTitle(id);
+                : articleTitle(id, titles);
 
             return (
               <Hop

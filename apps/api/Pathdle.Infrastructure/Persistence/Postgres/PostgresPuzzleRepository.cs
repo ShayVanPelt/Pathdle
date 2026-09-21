@@ -73,9 +73,12 @@ public sealed class PostgresPuzzleRepository(NpgsqlDataSource dataSource) : IPuz
             conn);
 
         var nodeRows = puzzle.Nodes
-            .Select(n => new NodeRow(n.Id, n.Title, n.X, n.Y, PostgresJson.FormatKind(n.Kind)))
+            .Select(n => new NodeRow(
+                n.Id, n.Title, n.X, n.Y, PostgresJson.FormatKind(n.Kind), n.Description))
             .ToList();
-        var edgeRows = puzzle.Edges.Select(e => new EdgeRow(e.From, e.To)).ToList();
+        var edgeRows = puzzle.Edges
+            .Select(e => new EdgeRow(e.From, e.To, e.GroupId, e.GroupLabel))
+            .ToList();
 
         cmd.Parameters.AddWithValue("id", puzzle.Id);
         cmd.Parameters.AddWithValue("puzzle_date", puzzle.PuzzleDate);
@@ -105,10 +108,11 @@ public sealed class PostgresPuzzleRepository(NpgsqlDataSource dataSource) : IPuz
         var pathJson = reader.GetString(reader.GetOrdinal("optimal_path"));
 
         var nodes = PostgresJson.Deserialize<List<NodeRow>>(nodesJson)
-            .Select(n => new PuzzleNode(n.Id, n.Title, n.X, n.Y, PostgresJson.ParseKind(n.Kind)))
+            .Select(n => new PuzzleNode(
+                n.Id, n.Title, n.X, n.Y, PostgresJson.ParseKind(n.Kind), n.Description))
             .ToList();
         var edges = PostgresJson.Deserialize<List<EdgeRow>>(edgesJson)
-            .Select(e => new PuzzleEdge(e.From, e.To))
+            .Select(e => new PuzzleEdge(e.From, e.To, e.GroupId, e.GroupLabel))
             .ToList();
         var optimal = PostgresJson.Deserialize<List<string>>(pathJson);
 

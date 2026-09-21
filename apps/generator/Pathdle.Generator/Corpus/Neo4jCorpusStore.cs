@@ -10,7 +10,9 @@ internal sealed class Neo4jCorpusStore(IDriver driver, string database) : IAsync
         await session.ExecuteWriteAsync(async tx =>
         {
             await tx.RunAsync(
-                "CREATE CONSTRAINT article_id IF NOT EXISTS FOR (a:Article) REQUIRE a.id IS UNIQUE");
+                "CREATE CONSTRAINT entity_id IF NOT EXISTS FOR (e:Entity) REQUIRE e.id IS UNIQUE");
+            await tx.RunAsync(
+                "CREATE CONSTRAINT group_id IF NOT EXISTS FOR (g:Group) REQUIRE g.id IS UNIQUE");
             await tx.RunAsync(
                 "CREATE CONSTRAINT corpus_meta_version IF NOT EXISTS FOR (c:CorpusMeta) REQUIRE c.version IS UNIQUE");
         });
@@ -21,67 +23,127 @@ internal sealed class Neo4jCorpusStore(IDriver driver, string database) : IAsync
         await using var session = driver.AsyncSession(o => o.WithDatabase(database));
         await session.ExecuteWriteAsync(async tx =>
         {
+            await tx.RunAsync("MATCH (e:Entity) DETACH DELETE e");
+            await tx.RunAsync("MATCH (g:Group) DETACH DELETE g");
             await tx.RunAsync("MATCH (a:Article) DETACH DELETE a");
             await tx.RunAsync("MATCH (c:CorpusMeta) DELETE c");
         });
     }
 
-    public async Task UpsertArticlesAndEdgesAsync(
-        IReadOnlyDictionary<string, string> idToTitle,
-        IReadOnlyCollection<(string From, string To)> edges,
+    public async Task UpsertCorpusAsync(
+        IReadOnlyList<CorpusEntityWrite> entities,
+        IReadOnlyList<CorpusGroupWrite> groups,
+        IReadOnlyList<(string EntityId, string GroupId)> memberships,
+        IReadOnlyList<CorpusShareEdgeWrite> shareEdges,
         CancellationToken ct)
     {
         await using var session = driver.AsyncSession(o => o.WithDatabase(database));
 
-        foreach (var chunk in idToTitle.Chunk(200))
+        foreach (var chunk in groups.Chunk(200))
         {
-            var rows = chunk.Select(kv => new { id = kv.Key, title = kv.Value }).ToList();
+            var rows = chunk.Select(g => new
+            {
+                id = g.Id,
+                label = g.Label,
+                property = g.Property,
+                valueId = g.ValueId,
+                frequency = g.Frequency,
+                rarity = g.Rarity,
+                memberCount = g.MemberCount
+            }).ToList();
             await session.ExecuteWriteAsync(async tx =>
             {
                 await tx.RunAsync(
                     """
                     UNWIND $rows AS row
-                    MERGE (a:Article {id: row.id})
-                    SET a.title = row.title
+                    MERGE (g:Group {id: row.id})
+                    SET g.label = row.label,
+                        g.property = row.property,
+                        g.valueId = row.valueId,
+                        g.frequency = row.frequency,
+                        g.rarity = row.rarity,
+                        g.memberCount = row.memberCount
                     """,
                     new { rows });
             });
         }
 
-        foreach (var chunk in edges.Chunk(400))
+        foreach (var chunk in entities.Chunk(200))
         {
-            var rows = chunk.Select(e => new { from = e.From, to = e.To }).ToList();
+            var rows = chunk.Select(e => new
+            {
+                id = e.Id,
+                title = e.Title,
+                popularity = e.Popularity,
+                description = e.Description ?? "",
+                isSeed = e.IsSeed
+            }).ToList();
             await session.ExecuteWriteAsync(async tx =>
             {
                 await tx.RunAsync(
                     """
                     UNWIND $rows AS row
-                    MATCH (a:Article {id: row.from})
-                    MATCH (b:Article {id: row.to})
-                    MERGE (a)-[:LINKS_TO]->(b)
+                    MERGE (e:Entity {id: row.id})
+                    SET e.title = row.title,
+                        e.popularity = row.popularity,
+                        e.description = row.description,
+                        e.isSeed = row.isSeed
                     """,
                     new { rows });
             });
         }
 
+        foreach (var chunk in memberships.Chunk(400))
+        {
+            var rows = chunk.Select(m => new { entityId = m.EntityId, groupId = m.GroupId }).ToList();
+            await session.ExecuteWriteAsync(async tx =>
+            {
+                await tx.RunAsync(
+                    """
+                    UNWIND $rows AS row
+                    MATCH (e:Entity {id: row.entityId})
+                    MATCH (g:Group {id: row.groupId})
+                    MERGE (e)-[:IN_GROUP]->(g)
+                    """,
+                    new { rows });
+            });
+        }
+
+        // Clear prior share edges then rewrite (idempotent rebuild).
         await session.ExecuteWriteAsync(async tx =>
         {
-            await tx.RunAsync(
-                """
-                MATCH (a:Article)
-                OPTIONAL MATCH (a)-[o:LINKS_TO]->()
-                WITH a, count(o) AS dout
-                OPTIONAL MATCH ()-[i:LINKS_TO]->(a)
-                WITH a, dout, count(i) AS din
-                SET a.degree_out = dout, a.degree_in = din,
-                    a.popularity = din + dout
-                """);
+            await tx.RunAsync("MATCH (:Entity)-[r:SHARES_GROUP]->(:Entity) DELETE r");
         });
+
+        foreach (var chunk in shareEdges.Chunk(400))
+        {
+            var rows = chunk.Select(e => new
+            {
+                a = e.A,
+                b = e.B,
+                groupId = e.GroupId,
+                groupLabel = e.GroupLabel,
+                rarity = e.Rarity
+            }).ToList();
+            await session.ExecuteWriteAsync(async tx =>
+            {
+                await tx.RunAsync(
+                    """
+                    UNWIND $rows AS row
+                    MATCH (a:Entity {id: row.a})
+                    MATCH (b:Entity {id: row.b})
+                    MERGE (a)-[r:SHARES_GROUP {groupId: row.groupId}]->(b)
+                    SET r.groupLabel = row.groupLabel, r.rarity = row.rarity
+                    """,
+                    new { rows });
+            });
+        }
     }
 
     public async Task WriteCorpusMetaAsync(
         string version,
-        int articleCount,
+        int entityCount,
+        int groupCount,
         int edgeCount,
         CancellationToken ct)
     {
@@ -91,11 +153,13 @@ internal sealed class Neo4jCorpusStore(IDriver driver, string database) : IAsync
             await tx.RunAsync(
                 """
                 MERGE (c:CorpusMeta {version: $version})
-                SET c.article_count = $articleCount,
+                SET c.entity_count = $entityCount,
+                    c.group_count = $groupCount,
+                    c.article_count = $entityCount,
                     c.edge_count = $edgeCount,
                     c.built_at = datetime()
                 """,
-                new { version, articleCount, edgeCount });
+                new { version, entityCount, groupCount, edgeCount });
         });
     }
 
@@ -107,7 +171,9 @@ internal sealed class Neo4jCorpusStore(IDriver driver, string database) : IAsync
             var cursor = await tx.RunAsync(
                 """
                 MATCH (c:CorpusMeta)
-                RETURN c.version AS version, c.article_count AS articles, c.edge_count AS edges
+                RETURN c.version AS version,
+                       coalesce(c.entity_count, c.article_count, 0) AS articles,
+                       coalesce(c.edge_count, 0) AS edges
                 ORDER BY c.built_at DESC
                 LIMIT 1
                 """);
@@ -131,68 +197,127 @@ internal sealed class Neo4jCorpusStore(IDriver driver, string database) : IAsync
             var articles = new Dictionary<string, CorpusArticle>(StringComparer.Ordinal);
             var cursor = await tx.RunAsync(
                 """
-                MATCH (a:Article)
-                RETURN a.id AS id, a.title AS title,
-                       coalesce(a.degree_out, 0) AS degreeOut,
-                       coalesce(a.degree_in, 0) AS degreeIn,
-                       coalesce(a.popularity, 0) AS popularity
+                MATCH (e:Entity)
+                RETURN e.id AS id, e.title AS title,
+                       coalesce(e.popularity, 0) AS popularity,
+                       coalesce(e.description, '') AS description,
+                       coalesce(e.isSeed, false) AS isSeed
                 """);
             await foreach (var record in cursor)
             {
                 var id = record["id"].As<string>();
+                var popularity = record["popularity"].As<int>();
+                var description = record["description"].As<string>();
+                var isSeed = record["isSeed"].As<bool>();
                 articles[id] = new CorpusArticle(
                     id,
                     record["title"].As<string>(),
-                    record["degreeOut"].As<int>(),
-                    record["degreeIn"].As<int>(),
-                    record["popularity"].As<int>());
+                    string.IsNullOrWhiteSpace(description) ? null : description,
+                    popularity,
+                    popularity,
+                    popularity,
+                    isSeed);
             }
 
-            var outs = articles.Keys.ToDictionary(
+            var neighbors = articles.Keys.ToDictionary(
                 k => k,
-                _ => new List<string>(),
+                _ => new List<CorpusEdge>(),
                 StringComparer.Ordinal);
 
             var edgeCursor = await tx.RunAsync(
                 """
-                MATCH (a:Article)-[:LINKS_TO]->(b:Article)
-                RETURN a.id AS from, b.id AS to
+                MATCH (a:Entity)-[r:SHARES_GROUP]->(b:Entity)
+                RETURN a.id AS from, b.id AS to,
+                       r.groupId AS groupId, r.groupLabel AS groupLabel,
+                       coalesce(r.rarity, 1.0) AS rarity
                 """);
             var edgeCount = 0;
+            var seen = new HashSet<string>(StringComparer.Ordinal);
             await foreach (var record in edgeCursor)
             {
                 var from = record["from"].As<string>();
                 var to = record["to"].As<string>();
-                if (outs.TryGetValue(from, out var list))
-                {
-                    list.Add(to);
-                    edgeCount++;
-                }
+                var groupId = record["groupId"].As<string>();
+                var groupLabel = record["groupLabel"].As<string>();
+                var rarity = record["rarity"].As<double>();
+                var key = CorpusGraph.UndirectedKey(from, to);
+                if (!seen.Add(key)) continue;
+
+                var edge = new CorpusEdge(from, to, groupId, groupLabel, rarity);
+                if (neighbors.TryGetValue(from, out var fl)) fl.Add(edge);
+                if (neighbors.TryGetValue(to, out var tl)) tl.Add(edge with { From = to, To = from });
+                edgeCount++;
             }
 
-            return new CorpusGraph(articles, outs, edgeCount);
+            return new CorpusGraph(articles, neighbors, edgeCount);
         });
     }
 
     public ValueTask DisposeAsync() => driver.DisposeAsync();
 }
 
+internal sealed record CorpusEntityWrite(
+    string Id,
+    string Title,
+    int Popularity,
+    string? Description = null,
+    bool IsSeed = false);
+internal sealed record CorpusGroupWrite(
+    string Id,
+    string Label,
+    string Property,
+    string ValueId,
+    double Frequency,
+    double Rarity,
+    int MemberCount);
+internal sealed record CorpusShareEdgeWrite(
+    string A,
+    string B,
+    string GroupId,
+    string GroupLabel,
+    double Rarity);
+
 internal sealed record CorpusArticle(
     string Id,
     string Title,
+    string? Description,
     int DegreeOut,
     int DegreeIn,
-    int Popularity);
+    int Popularity,
+    bool IsSeed = false);
+
+internal sealed record CorpusEdge(
+    string From,
+    string To,
+    string GroupId,
+    string GroupLabel,
+    double Rarity);
 
 internal sealed class CorpusGraph(
     IReadOnlyDictionary<string, CorpusArticle> articles,
-    IReadOnlyDictionary<string, List<string>> outbound,
+    IReadOnlyDictionary<string, List<CorpusEdge>> adjacency,
     int edgeCount)
 {
     public IReadOnlyDictionary<string, CorpusArticle> Articles { get; } = articles;
-    public IReadOnlyDictionary<string, List<string>> Outbound { get; } = outbound;
+    public IReadOnlyDictionary<string, List<CorpusEdge>> Adjacency { get; } = adjacency;
     public int EdgeCount { get; } = edgeCount;
 
+    public IReadOnlyList<CorpusEdge> EdgesFrom(string id) =>
+        Adjacency.TryGetValue(id, out var list) ? list : Array.Empty<CorpusEdge>();
+
     public IReadOnlyList<string> Neighbors(string id) =>
-        Outbound.TryGetValue(id, out var list) ? list : Array.Empty<string>();
+        EdgesFrom(id).Select(e => e.To).Distinct(StringComparer.Ordinal).ToList();
+
+    public CorpusEdge? FindEdge(string a, string b)
+    {
+        foreach (var e in EdgesFrom(a))
+        {
+            if (string.Equals(e.To, b, StringComparison.Ordinal)) return e;
+        }
+
+        return null;
+    }
+
+    public static string UndirectedKey(string a, string b) =>
+        string.CompareOrdinal(a, b) <= 0 ? $"{a}|{b}" : $"{b}|{a}";
 }

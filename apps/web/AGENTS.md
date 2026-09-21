@@ -16,16 +16,17 @@ Next.js App Router, TypeScript, React, Tailwind CSS. Deploy: Vercel.
 
 ## Product UI rules
 
-- Main experience = **full-bleed** interactive SVG constellation (~60 nodes later). Atmosphere fills the viewport; the graph is the hero.
-- **Top instrument HUD** (one row, equal plate height): Pathdle + How to play | charted path rail | Score / Links. No permanent side panels.
+- Main experience = **full-bleed** interactive SVG constellation (~30–40 nodes). Atmosphere fills the viewport; the graph is the hero.
+- **Top instrument HUD** (one row, equal plate height): Pathdle + How to play | charted path rail | Score / Links / Hints. No permanent side panels.
 - Initial board: nodes only, **no** visible edges until the player discovers them.
-- API layout positions are a **direction hint only**. Display spreads nodes into a circular ring with pill collision avoidance (`spreadDisplayPositions` in `src/lib/graph/layout.ts`) — do not invent a second topology layout from edges.
+- API layout positions are a **direction hint only**. Display scatters nodes into a **filled constellation** (`spreadDisplayPositions` in `src/lib/graph/layout.ts`): START and TARGET sit opposite, everyone else fills the interior with collision push. Do not invent a topology layout from edges, and do not pin the last hop beside TARGET.
 - Labels live **inside** node pills. Hover/selection highlights the pill only — never spawn external label chips.
+- Confirmed edges show the **relationship / group label** on the line; hint edges never show labels.
 - Pan, zoom (`+`/`−`/wheel/pinch), recenter, click nodes, drag to attempt connections.
-- **Click** a node → chart note (reveal outbound hints +75). Hints are dashed teal and are not path links until the player drags to confirm. Confirming a link from that node clears its remaining outbound hints.
-- **Drag** node → node → test/confirm link (+100). Branching from any charted node is allowed; confirmed links are never removed.
-- Score only grows for new attempts/reveals — no undo. Animate score changes in the HUD.
-- Reaching TARGET auto-opens results (breakdown + share); player may keep exploring the board.
+- **Click** a node → chart note → Reveal connections (+75, max 3 paid; free re-show). Dashed teal hints to all neighbors. Confirming a link from that node clears its remaining hints.
+- **Drag** node → node → test/confirm link (+100 success / +200 miss). Undirected; branching from any charted node is allowed; confirmed links are never removed.
+- Score only grows for new attempts/paid hints — no undo. Animate score changes in the HUD.
+- Reaching TARGET auto-opens results (breakdown + share); player may keep exploring the board after dismissing results.
 - Anonymous `player_key` in `localStorage` → send `X-Player-Key` on game calls.
 - Never trust or display full edge lists from the client side as “truth.”
 - Scoring constants: keep web `SCORING` in sync with API `ScoringRules`.
@@ -42,7 +43,7 @@ Quick checklist before shipping UI:
 4. No card grids wrapping the board; HUD is overlay instruments, board is full-bleed
 5. Motion is restrained (edge draw, fail fade, score bump) — not ambient particle spam
 6. Brand name readable on first paint without crushing the board
-7. In-node labels + circular spacing — no overlapping floating chips
+7. In-node labels + filled constellation spacing — group names are plaques on the link, never floating raw text
 
 ## Component map
 

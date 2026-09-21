@@ -15,6 +15,7 @@ function Invoke-SqlFile([string]$file) {
 if (docker ps --format "{{.Names}}" | Select-String -Quiet "^pathdle-postgres$") {
   Get-Content (Join-Path $root "infra\sql\migrations\001_init.sql") -Raw | docker exec -i pathdle-postgres psql -U pathdle -d pathdle -v ON_ERROR_STOP=1
   Get-Content (Join-Path $root "infra\sql\migrations\002_hint_edges.sql") -Raw | docker exec -i pathdle-postgres psql -U pathdle -d pathdle -v ON_ERROR_STOP=1
+  Get-Content (Join-Path $root "infra\sql\migrations\003_group_graph.sql") -Raw | docker exec -i pathdle-postgres psql -U pathdle -d pathdle -v ON_ERROR_STOP=1
   Get-Content (Join-Path $root "infra\sql\seed\001_seed_puzzle.sql") -Raw | docker exec -i pathdle-postgres psql -U pathdle -d pathdle -v ON_ERROR_STOP=1
   Write-Host "Pathdle schema + seed applied via docker exec."
   return

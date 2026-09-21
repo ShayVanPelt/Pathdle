@@ -20,19 +20,25 @@ internal static class PuzzleGenerator
         var rng = SeededRng.From(puzzleDate.ToString("yyyy-MM-dd"), corpusVersion, runNonce);
         var generatorSeed = $"{puzzleDate:yyyy-MM-dd}:{corpusVersion}:{runNonce}";
 
+        // Full co-membership graphs are too dense for length-4+ shortest paths.
+        var sparse = GraphAlgorithms.SparsifyByRarity(graph, opt.SparseMaxDegree);
+        Console.WriteLine(
+            $"Sparse graph for generation: {sparse.EdgeCount} edges "
+            + $"(from {graph.EdgeCount}, maxDegree={opt.SparseMaxDegree}).");
+
         var rejectNullPath = 0;
         var rejectScore = 0;
         var rejectShortcut = 0;
         for (var attempt = 1; attempt <= opt.MaxAttempts; attempt++)
         {
-            var path = PathSampler.Sample(graph, rng, opt);
+            var path = PathSampler.Sample(sparse, rng, opt);
             if (path is null)
             {
                 rejectNullPath++;
                 continue;
             }
 
-            var board = TrapBuilder.Build(graph, path, rng, opt);
+            var board = TrapBuilder.Build(sparse, path, rng, opt);
             var difficulty = DifficultyScorer.Score(board, opt);
             if (!DifficultyScorer.Accepts(difficulty, board, opt))
             {
@@ -40,9 +46,7 @@ internal static class PuzzleGenerator
                 continue;
             }
 
-            // Verify shortest path length still holds on induced edges.
-            var induced = ToAdjacency(board.Edges);
-            var check = ShortestLength(induced, path.StartId, path.TargetId);
+            var check = ShortestLength(board.Edges, path.StartId, path.TargetId);
             if (check != path.OptimalLength)
             {
                 rejectShortcut++;
@@ -51,7 +55,14 @@ internal static class PuzzleGenerator
 
             var nodes = LayoutBuilder.Layout(graph, board, rng);
             var edges = board.Edges
-                .Select(e => new PuzzleEdge(e.From, e.To))
+                .Select(e =>
+                {
+                    // Canonical endpoint order for storage
+                    var (a, b) = string.CompareOrdinal(e.From, e.To) <= 0
+                        ? (e.From, e.To)
+                        : (e.To, e.From);
+                    return new PuzzleEdge(a, b, e.GroupId, e.GroupLabel);
+                })
                 .OrderBy(e => e.From, StringComparer.Ordinal)
                 .ThenBy(e => e.To, StringComparer.Ordinal)
                 .ToList();
@@ -77,7 +88,7 @@ internal static class PuzzleGenerator
             Console.WriteLine(
                 $"Accepted on attempt {attempt}: {path.StartId} → {path.TargetId} "
                 + $"len={path.OptimalLength} nodes={nodes.Count} edges={edges.Count} "
-                + $"score={difficulty.Score} ({difficulty.Band})");
+                + $"score={difficulty.Score} ({difficulty.Band}) rarity={difficulty.AvgRarity:F1}");
 
             return new GeneratedPuzzle(puzzle, difficulty);
         }
@@ -85,32 +96,23 @@ internal static class PuzzleGenerator
         throw new InvalidOperationException(
             $"Failed to generate a quality puzzle after {opt.MaxAttempts} attempts "
             + $"(nullPath={rejectNullPath}, score/size={rejectScore}, shortcut={rejectShortcut}). "
-            + "Ingest a larger/denser corpus or relax GenerationOptions.");
-    }
-
-    private static Dictionary<string, List<string>> ToAdjacency(
-        HashSet<(string From, string To)> edges)
-    {
-        var map = new Dictionary<string, List<string>>(StringComparer.Ordinal);
-        foreach (var (from, to) in edges)
-        {
-            if (!map.TryGetValue(from, out var list))
-            {
-                list = [];
-                map[from] = list;
-            }
-
-            list.Add(to);
-        }
-
-        return map;
+            + "Ingest a denser Wikidata corpus (`ingest-corpus`) or try `--demo`.");
     }
 
     private static int? ShortestLength(
-        Dictionary<string, List<string>> adj,
+        HashSet<BoardEdge> edges,
         string start,
         string target)
     {
+        var adj = new Dictionary<string, List<string>>(StringComparer.Ordinal);
+        foreach (var e in edges)
+        {
+            if (!adj.TryGetValue(e.From, out var fl)) { fl = []; adj[e.From] = fl; }
+            if (!adj.TryGetValue(e.To, out var tl)) { tl = []; adj[e.To] = tl; }
+            fl.Add(e.To);
+            tl.Add(e.From);
+        }
+
         var dist = new Dictionary<string, int>(StringComparer.Ordinal) { [start] = 0 };
         var q = new Queue<string>();
         q.Enqueue(start);

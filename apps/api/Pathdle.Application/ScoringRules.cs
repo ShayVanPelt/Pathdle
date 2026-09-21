@@ -5,12 +5,15 @@ namespace Pathdle.Application;
 /// </summary>
 public static class ScoringRules
 {
-    /// <summary>Successful link discovery (node → node with a valid directed edge).</summary>
+    /// <summary>Successful link discovery (shared group edge exists).</summary>
     public const int SuccessfulLinkCost = 100;
 
-    /// <summary>Failed link attempt (no edge in that direction). No line is kept.</summary>
-    public const int FailedLinkCost = 100;
+    /// <summary>Failed link attempt (no shared group). No line is kept.</summary>
+    public const int FailedLinkCost = 200;
 
-    /// <summary>Reveal all outbound neighbors from one article on the board.</summary>
+    /// <summary>Reveal all neighbors from one article (first paid reveal only).</summary>
     public const int RevealOutboundCost = 75;
+
+    /// <summary>Maximum number of paid hint reveals per game.</summary>
+    public const int MaxHintsPerGame = 3;
 }

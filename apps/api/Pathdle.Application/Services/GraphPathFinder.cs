@@ -5,19 +5,34 @@ namespace Pathdle.Application.Services;
 public static class GraphPathFinder
 {
     /// <summary>
-    /// Shortest directed path from start to target using only the given edges.
+    /// Shortest undirected path from start to target using only the given edges.
     /// </summary>
     public static IReadOnlyList<string>? FindShortestPath(
         string start,
         string target,
         IEnumerable<PuzzleEdge> edges)
     {
-        var adjacency = edges
-            .GroupBy(e => e.From, StringComparer.Ordinal)
-            .ToDictionary(
-                g => g.Key,
-                g => g.Select(e => e.To).Distinct(StringComparer.Ordinal).ToList(),
-                StringComparer.Ordinal);
+        var adjacency = new Dictionary<string, List<string>>(StringComparer.Ordinal);
+
+        void Add(string a, string b)
+        {
+            if (!adjacency.TryGetValue(a, out var list))
+            {
+                list = [];
+                adjacency[a] = list;
+            }
+
+            if (!list.Contains(b, StringComparer.Ordinal))
+            {
+                list.Add(b);
+            }
+        }
+
+        foreach (var e in edges)
+        {
+            Add(e.From, e.To);
+            Add(e.To, e.From);
+        }
 
         if (string.Equals(start, target, StringComparison.Ordinal))
         {

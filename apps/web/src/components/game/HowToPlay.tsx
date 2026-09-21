@@ -10,15 +10,15 @@ type Props = {
 const STEPS = [
   {
     title: "Goal",
-    body: "Chart a path from the gold START star to the teal TARGET. Links are one-way. Lower score wins.",
+    body: "Connect START to TARGET by discovering shared relationships between nodes. Lower score wins.",
   },
   {
-    title: `Test a link (+${SCORING.successfulLink})`,
-    body: `Drag from START or any charted star onto another. A real link stays as a solid gold path. A miss still costs +${SCORING.failedLink}. No undoing.`,
+    title: `Test a connection (+${SCORING.successfulLink} / miss +${SCORING.failedLink})`,
+    body: `Drag from START or any charted star onto another. A real link stays as a solid path and reveals why they connect. A miss costs +${SCORING.failedLink}. No undoing.`,
   },
   {
-    title: `Reveal hints (+${SCORING.revealOutbound})`,
-    body: "Tap START or a charted star, then reveal its outbound hints. Dashed teal lines are hints only; drag to confirm.",
+    title: `Hints (+${SCORING.revealOutbound}, max ${SCORING.maxHintsPerGame})`,
+    body: `Reveal all neighbors of a charted star as dashed lines — without the relationship. Confirming a link clears those dashes; you can show them again for free. Only ${SCORING.maxHintsPerGame} paid reveals per puzzle.`,
   },
   {
     title: "Explore the sky",
@@ -47,7 +47,8 @@ export function HowToPlay({ open, onClose }: Props) {
           Pathdle
         </h2>
         <p className="mt-3 text-base leading-relaxed text-[var(--ink-muted)]">
-          A hidden constellation of links within real Wikipedia articles. Points are a cost; guess carefully.
+          A daily shortest-path puzzle. Nodes share hidden groups — discover the links, finish with
+          the lowest score.
         </p>
 
         <ol className="mt-7 space-y-5">

@@ -95,23 +95,23 @@ public sealed class GameService(
         EnsureNodeExists(puzzle, request.ToId);
         EnsureChartedSource(game, puzzle, request.FromId);
 
-        var alreadyDiscovered = game.DiscoveredEdges.Any(e =>
-            string.Equals(e.From, request.FromId, StringComparison.Ordinal)
-            && string.Equals(e.To, request.ToId, StringComparison.Ordinal));
-
-        if (alreadyDiscovered)
+        if (IsDiscovered(game, request.FromId, request.ToId))
         {
+            var existing = FindDiscovered(game, request.FromId, request.ToId);
             return BuildAttemptResponse(
                 game,
                 puzzle,
                 success: true,
                 request.FromId,
                 request.ToId,
+                existing?.GroupId,
+                existing?.GroupLabel,
                 pointsAdded: 0,
                 "Link already on your chart.");
         }
 
-        var success = puzzle.EdgeKeySet.Contains(DailyPuzzle.EdgeKey(request.FromId, request.ToId));
+        var boardEdge = puzzle.FindEdge(request.FromId, request.ToId);
+        var success = boardEdge is not null;
         game.AttemptedEdges.Add(new AttemptedEdge(request.FromId, request.ToId, success, clock.UtcNow));
 
         if (!success)
@@ -124,14 +124,21 @@ public sealed class GameService(
                 success: false,
                 request.FromId,
                 request.ToId,
+                null,
+                null,
                 ScoringRules.FailedLinkCost,
-                $"No link that way. +{ScoringRules.FailedLinkCost} points.");
+                $"No shared connection. +{ScoringRules.FailedLinkCost} points.");
         }
 
-        game.DiscoveredEdges.Add(new PuzzleEdge(request.FromId, request.ToId));
+        var confirmed = new PuzzleEdge(
+            request.FromId,
+            request.ToId,
+            boardEdge!.GroupId,
+            boardEdge.GroupLabel);
+        game.DiscoveredEdges.Add(confirmed);
         game.ConnectionCount += 1;
         game.Score += ScoringRules.SuccessfulLinkCost;
-        // Clear outbound hint lines from the node you just linked from (confirmed path replaces the blue fan).
+        // Clear dashed hints from the node you just linked from (confirmed path replaces the fan).
         game.HintEdges.RemoveAll(h =>
             string.Equals(h.From, request.FromId, StringComparison.Ordinal));
         AppendVisit(game, request.ToId);
@@ -144,8 +151,12 @@ public sealed class GameService(
             success: true,
             request.FromId,
             request.ToId,
+            confirmed.GroupId,
+            confirmed.GroupLabel,
             ScoringRules.SuccessfulLinkCost,
-            $"Link found. +{ScoringRules.SuccessfulLinkCost} points.");
+            string.IsNullOrEmpty(confirmed.GroupLabel)
+                ? $"Link found. +{ScoringRules.SuccessfulLinkCost} points."
+                : $"Link found — {confirmed.GroupLabel}. +{ScoringRules.SuccessfulLinkCost} points.");
     }
 
     public async Task<RevealResponse> RevealOutboundAsync(
@@ -173,76 +184,50 @@ public sealed class GameService(
         var alreadyRevealed = game.RevealedArticleIds.Any(id =>
             string.Equals(id, request.ArticleId, StringComparison.Ordinal));
 
-        var outbound = puzzle.Edges
-            .Where(e => string.Equals(e.From, request.ArticleId, StringComparison.Ordinal))
-            .ToList();
-
-        var neighborIds = outbound
-            .Select(e => e.To)
-            .Distinct(StringComparer.Ordinal)
-            .ToList();
+        var neighborIds = NeighborsOf(puzzle, request.ArticleId);
 
         if (alreadyRevealed)
         {
-            return new RevealResponse(
+            // Free re-show: restore dashed hints that were cleared after a confirm.
+            var hintsAdded = EnsureHintEdges(game, request.ArticleId, neighborIds);
+            if (hintsAdded.Count > 0)
+            {
+                await gameRepository.UpdateAsync(game, cancellationToken);
+            }
+
+            return BuildRevealResponse(
+                game,
+                puzzle,
                 request.ArticleId,
                 neighborIds,
-                [],
-                0,
-                game.ConnectionCount,
-                game.Score,
-                game.DiscoveredEdges.Select(PuzzleMapping.ToEdgeDto).ToList(),
-                game.HintEdges.Select(PuzzleMapping.ToEdgeDto).ToList(),
-                game.PlayerPath,
-                game.RevealedArticleIds,
-                HasReachedTarget(game, puzzle),
-                "Outbound links already revealed for this article.");
+                hintsAdded,
+                pointsAdded: 0,
+                "Connections already revealed — showing hints again (free).");
         }
 
-        // Hints only — do NOT add to discovered path edges. Player must still drag to connect.
-        var hintsAdded = new List<PuzzleEdge>();
-        foreach (var edge in outbound)
+        if (game.HintsUsed >= ScoringRules.MaxHintsPerGame)
         {
-            var alreadyDiscovered = game.DiscoveredEdges.Any(d =>
-                string.Equals(d.From, edge.From, StringComparison.Ordinal)
-                && string.Equals(d.To, edge.To, StringComparison.Ordinal));
-            if (alreadyDiscovered)
-            {
-                continue;
-            }
-
-            var alreadyHinted = game.HintEdges.Any(h =>
-                string.Equals(h.From, edge.From, StringComparison.Ordinal)
-                && string.Equals(h.To, edge.To, StringComparison.Ordinal));
-            if (alreadyHinted)
-            {
-                continue;
-            }
-
-            game.HintEdges.Add(edge);
-            hintsAdded.Add(edge);
+            throw new ConflictException(
+                $"No hints left ({ScoringRules.MaxHintsPerGame} per puzzle).");
         }
 
+        var paidHints = EnsureHintEdges(game, request.ArticleId, neighborIds);
         game.RevealedArticleIds.Add(request.ArticleId);
+        game.HintsUsed += 1;
         game.Score += ScoringRules.RevealOutboundCost;
 
         await gameRepository.UpdateAsync(game, cancellationToken);
 
-        return new RevealResponse(
+        return BuildRevealResponse(
+            game,
+            puzzle,
             request.ArticleId,
             neighborIds,
-            hintsAdded.Select(PuzzleMapping.ToEdgeDto).ToList(),
+            paidHints,
             ScoringRules.RevealOutboundCost,
-            game.ConnectionCount,
-            game.Score,
-            game.DiscoveredEdges.Select(PuzzleMapping.ToEdgeDto).ToList(),
-            game.HintEdges.Select(PuzzleMapping.ToEdgeDto).ToList(),
-            game.PlayerPath,
-            game.RevealedArticleIds,
-            HasReachedTarget(game, puzzle),
             neighborIds.Count == 0
-                ? $"No outbound links on this board. +{ScoringRules.RevealOutboundCost} points."
-                : $"Hinted {neighborIds.Count} possible link(s) — drag to confirm. +{ScoringRules.RevealOutboundCost} points.");
+                ? $"No connections on this board. +{ScoringRules.RevealOutboundCost} points."
+                : $"Hinted {neighborIds.Count} connection(s) — drag to confirm. +{ScoringRules.RevealOutboundCost} points.");
     }
 
     public async Task<CompleteGameResponse> CompleteGameAsync(
@@ -273,7 +258,6 @@ public sealed class GameService(
             throw new ConflictException("Target has not been reached yet.");
         }
 
-        // Results use the best route through confirmed links; exploration history is not erased from edges.
         game.PlayerPath = path.ToList();
         game.Status = GameStatus.Completed;
         game.CompletedAt = clock.UtcNow;
@@ -282,9 +266,71 @@ public sealed class GameService(
         return ToCompleteResponse(game, puzzle);
     }
 
+    private static List<string> NeighborsOf(DailyPuzzle puzzle, string articleId)
+    {
+        var neighbors = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var e in puzzle.Edges)
+        {
+            if (string.Equals(e.From, articleId, StringComparison.Ordinal))
+            {
+                neighbors.Add(e.To);
+            }
+            else if (string.Equals(e.To, articleId, StringComparison.Ordinal))
+            {
+                neighbors.Add(e.From);
+            }
+        }
+
+        return neighbors.ToList();
+    }
+
     /// <summary>
-    /// Append-only visit list. Never truncates — players may branch from earlier nodes.
+    /// Adds unlabeled hint edges from articleId to each undiscovered neighbor. Returns newly added hints.
     /// </summary>
+    private static List<PuzzleEdge> EnsureHintEdges(
+        PlayerGame game,
+        string articleId,
+        IReadOnlyList<string> neighborIds)
+    {
+        var hintsAdded = new List<PuzzleEdge>();
+        foreach (var neighbor in neighborIds)
+        {
+            if (IsDiscovered(game, articleId, neighbor))
+            {
+                continue;
+            }
+
+            var alreadyHinted = game.HintEdges.Any(h =>
+                string.Equals(h.From, articleId, StringComparison.Ordinal)
+                && string.Equals(h.To, neighbor, StringComparison.Ordinal));
+            if (alreadyHinted)
+            {
+                continue;
+            }
+
+            // Hints never carry group labels.
+            var hint = new PuzzleEdge(articleId, neighbor);
+            game.HintEdges.Add(hint);
+            hintsAdded.Add(hint);
+        }
+
+        return hintsAdded;
+    }
+
+    private static bool IsDiscovered(PlayerGame game, string a, string b)
+    {
+        var key = DailyPuzzle.UndirectedEdgeKey(a, b);
+        return game.DiscoveredEdges.Any(e =>
+            string.Equals(DailyPuzzle.UndirectedEdgeKey(e.From, e.To), key, StringComparison.Ordinal));
+    }
+
+    private static PuzzleEdge? FindDiscovered(PlayerGame game, string a, string b)
+    {
+        var key = DailyPuzzle.UndirectedEdgeKey(a, b);
+        return game.DiscoveredEdges.FirstOrDefault(e =>
+            string.Equals(DailyPuzzle.UndirectedEdgeKey(e.From, e.To), key, StringComparison.Ordinal));
+    }
+
     private static void AppendVisit(PlayerGame game, string articleId)
     {
         if (game.PlayerPath.Any(id => string.Equals(id, articleId, StringComparison.Ordinal)))
@@ -301,21 +347,54 @@ public sealed class GameService(
         bool success,
         string fromId,
         string toId,
+        string? groupId,
+        string? groupLabel,
         int pointsAdded,
         string message) =>
         new(
             success,
             fromId,
             toId,
+            groupId,
+            groupLabel,
             pointsAdded,
             game.ConnectionCount,
             game.Score,
-            game.DiscoveredEdges.Select(PuzzleMapping.ToEdgeDto).ToList(),
-            game.HintEdges.Select(PuzzleMapping.ToEdgeDto).ToList(),
+            game.HintsUsed,
+            HintsRemaining(game),
+            game.DiscoveredEdges.Select(PuzzleMapping.ToDiscoveredEdgeDto).ToList(),
+            game.HintEdges.Select(PuzzleMapping.ToHintEdgeDto).ToList(),
             game.PlayerPath,
             game.RevealedArticleIds,
             HasReachedTarget(game, puzzle),
             message);
+
+    private static RevealResponse BuildRevealResponse(
+        PlayerGame game,
+        DailyPuzzle puzzle,
+        string articleId,
+        IReadOnlyList<string> neighborIds,
+        IReadOnlyList<PuzzleEdge> hintsAdded,
+        int pointsAdded,
+        string message) =>
+        new(
+            articleId,
+            neighborIds,
+            hintsAdded.Select(PuzzleMapping.ToHintEdgeDto).ToList(),
+            pointsAdded,
+            game.ConnectionCount,
+            game.Score,
+            game.HintsUsed,
+            HintsRemaining(game),
+            game.DiscoveredEdges.Select(PuzzleMapping.ToDiscoveredEdgeDto).ToList(),
+            game.HintEdges.Select(PuzzleMapping.ToHintEdgeDto).ToList(),
+            game.PlayerPath,
+            game.RevealedArticleIds,
+            HasReachedTarget(game, puzzle),
+            message);
+
+    private static int HintsRemaining(PlayerGame game) =>
+        Math.Max(0, ScoringRules.MaxHintsPerGame - game.HintsUsed);
 
     private async Task<(PlayerGame Game, DailyPuzzle Puzzle)> LoadOwnedGameAsync(
         Guid gameId,

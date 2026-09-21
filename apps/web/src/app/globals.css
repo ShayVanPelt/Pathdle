@@ -100,10 +100,16 @@ body {
 }
 
 .pathdle-node-tag {
-  font-family: var(--font-ui), system-ui, sans-serif;
-  font-size: 10px;
-  font-weight: 700;
-  letter-spacing: 0.2em;
+  font-family: var(--font-display), Georgia, serif;
+  font-size: 11px;
+  font-weight: 650;
+  letter-spacing: 0.28em;
+}
+
+.pathdle-node-tag.is-start,
+.pathdle-node-tag.is-target {
+  font-size: 12px;
+  letter-spacing: 0.32em;
 }
 
 .pathdle-node-body {
@@ -115,12 +121,47 @@ body {
   fill: var(--label-chip-path);
 }
 
+.pathdle-node-body.is-start {
+  fill: oklch(0.2 0.08 75 / 0.96);
+}
+
+.pathdle-node-body.is-target {
+  fill: oklch(0.17 0.07 210 / 0.96);
+}
+
 .pathdle-node-body.is-branch {
   fill: oklch(0.09 0.02 275 / 0.9);
 }
 
 .pathdle-node-body.is-selected {
   fill: oklch(0.16 0.04 80 / 0.94);
+}
+
+.pathdle-pole-ring {
+  stroke-width: 1.7;
+  opacity: 0.9;
+}
+
+.pathdle-pole-ring.is-start {
+  stroke: var(--accent);
+}
+
+.pathdle-pole-ring.is-target {
+  stroke: var(--target);
+}
+
+.pathdle-pole-orbit {
+  stroke-width: 1.15;
+  stroke-dasharray: 5 7;
+  opacity: 0.55;
+}
+
+.pathdle-pole-orbit.is-start {
+  stroke: oklch(0.86 0.14 78 / 0.7);
+}
+
+.pathdle-pole-orbit.is-target {
+  stroke: oklch(0.8 0.12 210 / 0.7);
 }
 
 /* ——— Nodes ——— */
@@ -139,6 +180,14 @@ body {
 
 .pathdle-node-visual.is-on-path {
   filter: drop-shadow(0 0 7px oklch(0.86 0.14 75 / 0.45));
+}
+
+.pathdle-node-visual.is-start {
+  filter: drop-shadow(0 0 16px oklch(0.86 0.16 75 / 0.7));
+}
+
+.pathdle-node-visual.is-target {
+  filter: drop-shadow(0 0 16px oklch(0.78 0.14 210 / 0.7));
 }
 
 .pathdle-node-visual.is-option {
@@ -173,6 +222,10 @@ body {
   animation: pathdle-target-breathe 3.8s ease-in-out infinite;
 }
 
+.pathdle-node-start-pulse {
+  animation: pathdle-start-breathe 4.4s ease-in-out infinite;
+}
+
 .pathdle-node-connect-flash {
   animation: pathdle-connect-flash 0.55s ease-out;
 }
@@ -188,17 +241,17 @@ body {
 }
 
 .pathdle-edge-layer.is-dimmed {
-  opacity: 0.14;
+  opacity: 0.4;
 }
 
 .pathdle-edge-layer.is-soft {
-  opacity: 0.45;
+  opacity: 0.72;
 }
 
 .pathdle-edge-in {
-  stroke-dasharray: 12 1400;
-  stroke-dashoffset: 1400;
-  animation: pathdle-draw 0.55s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+  stroke-dasharray: 1;
+  stroke-dashoffset: 1;
+  animation: pathdle-draw 0.58s cubic-bezier(0.22, 1, 0.36, 1) forwards;
 }
 
 .pathdle-edge-path {
@@ -238,6 +291,28 @@ body {
 .pathdle-hint-edge {
   opacity: 0.72;
   animation: pathdle-hint-in 0.4s ease forwards;
+}
+
+.pathdle-edge-label {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  paint-order: stroke fill;
+  stroke: oklch(0.08 0.02 275 / 0.88);
+  stroke-width: 3.5px;
+  pointer-events: none;
+}
+
+.pathdle-group-plaque {
+  stroke-width: 1.35;
+  filter: url(#plaque-glow);
+}
+
+.pathdle-group-plaque-text {
+  font-family: var(--font-ui), system-ui, sans-serif;
+  font-size: 12px;
+  font-weight: 650;
+  letter-spacing: 0.06em;
 }
 
 .pathdle-drag-line {
@@ -349,6 +424,18 @@ body {
   }
 }
 
+@keyframes pathdle-start-breathe {
+  0%,
+  100% {
+    opacity: 0.38;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.72;
+    transform: scale(1.07);
+  }
+}
+
 @keyframes pathdle-connect-flash {
   0% {
     opacity: 0.9;
@@ -374,15 +461,12 @@ body {
 
 @keyframes pathdle-draw {
   0% {
-    stroke-dashoffset: 1400;
-    opacity: 1;
-  }
-  70% {
+    stroke-dashoffset: 1;
     opacity: 1;
   }
   100% {
     stroke-dashoffset: 0;
-    opacity: 0.95;
+    opacity: 0.98;
   }
 }
 
@@ -487,6 +571,7 @@ body {
   .pathdle-node-halo,
   .pathdle-node-ring,
   .pathdle-node-target-pulse,
+  .pathdle-node-start-pulse,
   .pathdle-node-connect-flash,
   .pathdle-node-select-pulse,
   .pathdle-edge-in,
@@ -505,7 +590,7 @@ body {
   .pathdle-edge-in {
     stroke-dasharray: none;
     stroke-dashoffset: 0;
-    opacity: 0.95;
+    opacity: 0.98;
   }
 
   .pathdle-node-visual.is-hover {

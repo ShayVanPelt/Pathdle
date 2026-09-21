@@ -8,19 +8,28 @@ internal sealed class GenerationOptions
 {
     public int MinLength { get; init; } = 4;
     public int MaxLength { get; init; } = 6;
-    public int MinBoardNodes { get; init; } = 40;
-    public int MaxBoardNodes { get; init; } = 75;
-    public int MaxAttempts { get; init; } = 250;
-    public int MinScore { get; init; } = 38;
-    public int MaxScore { get; init; } = 90;
-    public int MaxAltShortest { get; init; } = 4;
-    public int MinOutDegreeStart { get; init; } = 2;
-    public int MaxOutDegreeStart { get; init; } = 140;
-    public int MinInDegreeTarget { get; init; } = 15;
-    public int MaxInDegreeTarget { get; init; } = 400;
-    public int MinOutDegreeTarget { get; init; } = 2;
+    public int MinBoardNodes { get; init; } = 30;
+    public int MaxBoardNodes { get; init; } = 40;
+    public int MaxAttempts { get; init; } = 400;
+    public int MinScore { get; init; } = 30;
+    public int MaxScore { get; init; } = 95;
+    /// <summary>Dense co-membership graphs have many shortest paths — allow more than Wikipedia link graphs.</summary>
+    public int MaxAltShortest { get; init; } = 16;
+    public int MinDegreeStart { get; init; } = 2;
+    /// <summary>After rarity sparsification; still allow moderately connected hubs.</summary>
+    public int MaxDegreeStart { get; init; } = 24;
+    public int MinDegreeTarget { get; init; } = 2;
+    public int MaxDegreeTarget { get; init; } = 24;
     public int TrapDepth { get; init; } = 2;
     public int TrapsPerMidNode { get; init; } = 3;
+    /// <summary>Keep only this many highest-rarity edges per node before path search.</summary>
+    public int SparseMaxDegree { get; init; } = 10;
+    /// <summary>Min Wikipedia sitelinks for START (fame).</summary>
+    public int MinFameStart { get; init; } = 25;
+    /// <summary>Min Wikipedia sitelinks for TARGET.</summary>
+    public int MinFameTarget { get; init; } = 25;
+    /// <summary>Most board fillers must meet this fame floor.</summary>
+    public int MinFameBoard { get; init; } = 12;
 }
 
 internal sealed record PathCandidate(
@@ -30,12 +39,21 @@ internal sealed record PathCandidate(
     int OptimalLength,
     int AltShortestCount,
     double MidPathBranchAvg,
-    double HubPenalty);
+    double HubPenalty,
+    double AvgRarity,
+    double AvgFame = 0);
+
+internal sealed record BoardEdge(
+    string From,
+    string To,
+    string GroupId,
+    string GroupLabel,
+    double Rarity);
 
 internal sealed record BuiltBoard(
     PathCandidate Path,
     HashSet<string> NodeIds,
-    HashSet<(string From, string To)> Edges,
+    HashSet<BoardEdge> Edges,
     HashSet<string> TrapNodeIds,
     int TrapEdgeCount);
 
@@ -52,9 +70,7 @@ internal static class SeededRng
 
 internal static class GraphAlgorithms
 {
-    public static Dictionary<string, int> BfsDistances(
-        CorpusGraph graph,
-        string start)
+    public static Dictionary<string, int> BfsDistances(CorpusGraph graph, string start)
     {
         var dist = new Dictionary<string, int>(StringComparer.Ordinal) { [start] = 0 };
         var q = new Queue<string>();
@@ -111,94 +127,90 @@ internal static class GraphAlgorithms
         return null;
     }
 
-    public static int CountShortestPaths(
-        CorpusGraph graph,
-        string start,
-        string target,
-        int maxWays = int.MaxValue)
+    public static int CountShortestPaths(CorpusGraph graph, string start, string target, int maxCount = 8)
     {
-        var dist = new Dictionary<string, int>(StringComparer.Ordinal) { [start] = 0 };
+        var dist = BfsDistances(graph, start);
+        if (!dist.TryGetValue(target, out var targetDist)) return 0;
+
         var ways = new Dictionary<string, int>(StringComparer.Ordinal) { [start] = 1 };
-        var q = new Queue<string>();
-        q.Enqueue(start);
-        while (q.Count > 0)
+        var ordered = dist.OrderBy(kv => kv.Value).Select(kv => kv.Key);
+        foreach (var u in ordered)
         {
-            var u = q.Dequeue();
-            var du = dist[u];
-            if (dist.TryGetValue(target, out var dt) && du > dt) continue;
+            if (!ways.TryGetValue(u, out var wu)) continue;
             foreach (var v in graph.Neighbors(u))
             {
-                if (!dist.ContainsKey(v))
-                {
-                    dist[v] = du + 1;
-                    ways[v] = ways[u];
-                    q.Enqueue(v);
-                }
-                else if (dist[v] == du + 1)
-                {
-                    ways[v] += ways[u];
-                }
-
-                if (v == target && ways[v] > maxWays)
-                {
-                    return ways[v];
-                }
+                if (!dist.TryGetValue(v, out var dv) || dv != dist[u] + 1) continue;
+                ways[v] = Math.Min(maxCount, ways.GetValueOrDefault(v) + wu);
             }
         }
 
-        return ways.TryGetValue(target, out var w) ? w : 0;
+        return ways.GetValueOrDefault(target);
     }
 
-    public static HashSet<string> NodesOnAnyShortestPath(
-        CorpusGraph graph,
-        string start,
-        string target)
+    public static double MidPathBranchAverage(CorpusGraph graph, IReadOnlyList<string> path)
     {
-        var forward = BfsDistances(graph, start);
-        if (!forward.ContainsKey(target)) return [];
-
-        // Reverse BFS on inverted edges.
-        var inbound = new Dictionary<string, List<string>>(StringComparer.Ordinal);
-        foreach (var (from, outs) in graph.Outbound)
+        if (path.Count <= 2) return 0;
+        double sum = 0;
+        var mids = 0;
+        for (var i = 1; i < path.Count - 1; i++)
         {
-            foreach (var to in outs)
+            sum += graph.Neighbors(path[i]).Count;
+            mids++;
+        }
+
+        return mids == 0 ? 0 : sum / mids;
+    }
+
+    public static double HubPenalty(CorpusGraph graph, IReadOnlyList<string> path)
+    {
+        // Degree-based hubbiness (not sitelink fame — famous nodes are desirable).
+        var maxDeg = 0;
+        foreach (var id in graph.Articles.Keys)
+        {
+            maxDeg = Math.Max(maxDeg, graph.Neighbors(id).Count);
+        }
+
+        if (maxDeg <= 0) return 0;
+        return path.Average(id => graph.Neighbors(id).Count / (double)maxDeg);
+    }
+
+    public static string UndirectedKey(string a, string b) => CorpusGraph.UndirectedKey(a, b);
+
+    /// <summary>
+    /// Co-membership graphs are extremely dense. Keep only the highest-rarity edges
+    /// per node so shortest paths of length 4–6 exist for daily puzzles.
+    /// </summary>
+    public static CorpusGraph SparsifyByRarity(CorpusGraph full, int maxDegreePerNode)
+    {
+        var best = new Dictionary<string, CorpusEdge>(StringComparer.Ordinal);
+        foreach (var id in full.Articles.Keys)
+        {
+            foreach (var edge in full.EdgesFrom(id)
+                         .OrderByDescending(e => e.Rarity)
+                         .ThenBy(e => e.GroupId, StringComparer.Ordinal)
+                         .Take(Math.Max(2, maxDegreePerNode)))
             {
-                if (!inbound.TryGetValue(to, out var list))
+                var key = UndirectedKey(edge.From, edge.To);
+                if (!best.TryGetValue(key, out var prev) || edge.Rarity > prev.Rarity)
                 {
-                    list = [];
-                    inbound[to] = list;
+                    best[key] = edge;
                 }
-
-                list.Add(from);
             }
         }
 
-        var backward = new Dictionary<string, int>(StringComparer.Ordinal) { [target] = 0 };
-        var q = new Queue<string>();
-        q.Enqueue(target);
-        while (q.Count > 0)
+        var adjacency = full.Articles.Keys.ToDictionary(
+            k => k,
+            _ => new List<CorpusEdge>(),
+            StringComparer.Ordinal);
+
+        foreach (var edge in best.Values)
         {
-            var u = q.Dequeue();
-            if (!inbound.TryGetValue(u, out var preds)) continue;
-            foreach (var p in preds)
-            {
-                if (backward.ContainsKey(p)) continue;
-                backward[p] = backward[u] + 1;
-                q.Enqueue(p);
-            }
+            if (!adjacency.ContainsKey(edge.From) || !adjacency.ContainsKey(edge.To)) continue;
+            adjacency[edge.From].Add(edge);
+            adjacency[edge.To].Add(new CorpusEdge(
+                edge.To, edge.From, edge.GroupId, edge.GroupLabel, edge.Rarity));
         }
 
-        var targetDist = forward[target];
-        var onPath = new HashSet<string>(StringComparer.Ordinal);
-        foreach (var id in forward.Keys)
-        {
-            if (backward.TryGetValue(id, out var b)
-                && forward[id] + b == targetDist)
-            {
-                onPath.Add(id);
-            }
-        }
-
-        return onPath;
+        return new CorpusGraph(full.Articles, adjacency, best.Count);
     }
 }

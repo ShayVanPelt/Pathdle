@@ -11,9 +11,11 @@ export type ChartNeighbor = {
 
 type Props = {
   title: string;
+  description?: string | null;
   neighbors: ChartNeighbor[];
   canExplore: boolean;
   revealed: boolean;
+  hintsRemaining: number;
   playLocked?: boolean;
   variant: "popover" | "sheet";
   style?: CSSProperties;
@@ -23,15 +25,33 @@ type Props = {
 
 export function ChartNote({
   title,
+  description,
   neighbors,
   canExplore,
   revealed,
+  hintsRemaining,
   playLocked,
   variant,
   style,
   onReveal,
   onClose,
 }: Props) {
+  const canPaidReveal = !revealed && hintsRemaining > 0;
+  const canFreeReshow = revealed;
+  const revealDisabled =
+    !canExplore || playLocked || (!canPaidReveal && !canFreeReshow);
+
+  let revealLabel: string;
+  if (!canExplore) {
+    revealLabel = "Connect this star to unlock hints";
+  } else if (revealed) {
+    revealLabel = "Show connections again (free)";
+  } else if (hintsRemaining <= 0) {
+    revealLabel = "No hints remaining";
+  } else {
+    revealLabel = `Reveal connections  +${SCORING.revealOutbound}  ·  ${hintsRemaining} left`;
+  }
+
   const body = (
     <>
       <div className="flex items-start justify-between gap-3">
@@ -42,6 +62,9 @@ export function ChartNote({
           <p className="mt-1 text-lg font-semibold leading-snug text-[var(--ink-bright)] sm:text-xl">
             {title}
           </p>
+          {description ? (
+            <p className="mt-1.5 text-sm leading-snug text-[var(--ink-muted)]">{description}</p>
+          ) : null}
         </div>
         <button
           type="button"
@@ -55,7 +78,7 @@ export function ChartNote({
 
       <p className="mt-3 text-sm leading-relaxed text-[var(--ink-muted)]">
         {canExplore
-          ? "Drag to another star to test a link. Reveals draw dashed hint lines; they are not your path until you confirm."
+          ? "Drag to another star to test a connection. Hints show dashed lines to neighbors — not why they connect. Confirming a link clears hints from that star."
           : "Chart a confirmed path to this star before exploring from it."}
       </p>
 
@@ -84,13 +107,9 @@ export function ChartNote({
           event.stopPropagation();
           onReveal();
         }}
-        disabled={!canExplore || revealed || playLocked}
+        disabled={revealDisabled}
       >
-        {!canExplore
-          ? "Connect this star to unlock hints"
-          : revealed
-            ? "Hints already shown"
-            : `Reveal outbound hints  +${SCORING.revealOutbound}`}
+        {revealLabel}
       </button>
     </>
   );

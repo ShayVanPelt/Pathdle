@@ -2,31 +2,31 @@
 
 ## Role
 
-Cloud Run Job (later): Wikipedia corpus ingest (rare) and daily puzzle publish (once/day).
-Uses Neo4j for graph analysis; writes immutable rows to Postgres.
+Cloud Run Job (later): Wikidata group-graph corpus ingest and daily puzzle publish.
+Uses Neo4j for Entity/Group analysis; writes immutable rows to Postgres.
 
 ## Commands
 
 ```bash
 # Neo4j must be up: docker compose up -d neo4j
-dotnet run --project apps/generator/Pathdle.Generator -- ingest-corpus --max-articles=8000
-dotnet run --project apps/generator/Pathdle.Generator -- ingest-corpus --max-articles=1200 --scout-pages=6 --induce-pages=0
+dotnet run --project apps/generator/Pathdle.Generator -- ingest-corpus --demo
+dotnet run --project apps/generator/Pathdle.Generator -- ingest-corpus --max-entities=2000
 dotnet run --project apps/generator/Pathdle.Generator -- generate-daily --today
 dotnet run --project apps/generator/Pathdle.Generator -- generate-daily --dry-run
-dotnet run --project apps/generator/Pathdle.Generator -- diagnose-links --title=Albert_Einstein --expect=Physics
 ```
 
-Default `generate-daily` date = **tomorrow UTC**, advancing to the next free `puzzle_date` if that slot is taken. Use `--today` for local testing. Each run uses a unique 12-char seed nonce (logged as `seed=…`); `--date=YYYY-MM-DD` pins the calendar day for scheduled jobs. Local corpus ingest often uses `--max-articles=1200` (full cap 8000). Ingest defaults: `--scout-pages=6`, `--induce-pages=0` (unlimited keep-filtered). Watch the canary `MISS` lines after ingest.
+`--demo` loads a hand-authored group graph (no Wikidata). Full ingest uses SPARQL + `wbgetentities` with `GroupVocabulary` allowlist/denylist and rarity.
 
-Cloud Run Job image: `apps/generator/Dockerfile` — see `docs/deploy-cloud-run.md`.
+Seeds: `apps/generator/data/seed_entities.txt` — curated multi-group hubs (companies, people, franchises, foods, cities). Not Wikipedia titles; not class QIDs. Expand with `--max-entities`.
+
+Default `generate-daily` date = **tomorrow UTC**. Optimal length prefer **4–6** (small demo corpora may accept **3–5**). Board ~**30–40** nodes. Edges store `groupId` / `groupLabel`.
 
 ## Rules
 
 - Never overwrite an existing `daily_puzzles` row for a date — idempotent skip.
-- Ingest is separate from daily generation; do not rebuild Wikipedia daily.
-- Optimal length must be 4–6; mid-path trap red herrings required — see `docs/generator.md`.
+- Ingest is separate from daily generation.
 - Gameplay services must not depend on this process being online.
 
 ## Env
 
-Root `.env`: `Neo4j__*`, `ConnectionStrings__Postgres`, `Pathdle__CorpusVersion`.
+Root `.env`: `Neo4j__*`, `ConnectionStrings__Postgres`, `Pathdle__CorpusVersion` (e.g. `wikidata-groups-v1`).

@@ -11,79 +11,93 @@ internal static class TrapBuilder
         GenerationOptions opt)
     {
         var nodes = new HashSet<string>(path.OptimalPath, StringComparer.Ordinal);
-        var edges = new HashSet<(string From, string To)>();
+        var edges = new HashSet<BoardEdge>(BoardEdgeComparer.Instance);
         var traps = new HashSet<string>(StringComparer.Ordinal);
         var trapEdges = 0;
 
-        // Optimal path edges.
+        // Optimal path edges
         for (var i = 0; i < path.OptimalPath.Count - 1; i++)
         {
-            edges.Add((path.OptimalPath[i], path.OptimalPath[i + 1]));
+            var a = path.OptimalPath[i];
+            var b = path.OptimalPath[i + 1];
+            var e = graph.FindEdge(a, b)
+                ?? throw new InvalidOperationException($"Missing corpus edge {a}-{b}");
+            edges.Add(ToBoardEdge(e));
         }
-
-        var shortestSet = GraphAlgorithms.NodesOnAnyShortestPath(
-            graph,
-            path.StartId,
-            path.TargetId);
 
         var midNodes = path.OptimalPath.Skip(1).Take(path.OptimalPath.Count - 2).ToList();
         foreach (var mid in midNodes)
         {
-            if (nodes.Count >= opt.MaxBoardNodes) break;
-
-            var candidates = graph.Neighbors(mid)
-                .Where(n => !shortestSet.Contains(n) && !nodes.Contains(n))
-                .Select(n => graph.Articles[n])
-                .OrderByDescending(a => a.DegreeIn)
-                .ThenByDescending(a => a.Popularity)
-                .Take(16)
-                .Select(a => a.Id)
-                .OrderBy(_ => rng.Next())
-                .Take(opt.TrapsPerMidNode + 2)
+            var candidates = graph.EdgesFrom(mid)
+                .Where(e => !nodes.Contains(e.To))
+                .OrderByDescending(e =>
+                    graph.Articles.TryGetValue(e.To, out var a) ? a.Popularity : 0)
+                .ThenByDescending(e => e.Rarity)
+                .ThenBy(_ => rng.Next())
+                .Take(opt.TrapsPerMidNode * 4)
                 .ToList();
 
-            foreach (var trapRoot in candidates)
+            var added = 0;
+            var obscureAdded = 0;
+            foreach (var edge in candidates)
             {
+                if (added >= opt.TrapsPerMidNode) break;
+                if (!graph.Articles.TryGetValue(edge.To, out var cand)) continue;
+                var obscure = cand.Popularity < opt.MinFameBoard && !cand.IsSeed;
+                if (obscure && obscureAdded >= 1) continue;
+
+                if (!TryAddNode(graph, nodes, edges, edge.To, path, opt, out var addedEdges))
+                {
+                    continue;
+                }
+
+                traps.Add(edge.To);
+                trapEdges += addedEdges;
+                added++;
+                if (obscure) obscureAdded++;
+
+                ExpandTrap(graph, nodes, edges, traps, edge.To, path, rng, opt, ref trapEdges);
                 if (nodes.Count >= opt.MaxBoardNodes) break;
-                if (!TryAddNode(graph, nodes, edges, path, trapRoot)) continue;
-                traps.Add(trapRoot);
-                trapEdges++;
-                ExpandTrap(graph, trapRoot, nodes, edges, traps, ref trapEdges, path, opt, rng);
             }
+
+            if (nodes.Count >= opt.MaxBoardNodes) break;
         }
 
-        // Light thematic distractors from START / TARGET neighborhoods.
+        // Light distractors from START / TARGET neighborhoods
         foreach (var anchor in new[] { path.StartId, path.TargetId })
         {
-            if (nodes.Count >= opt.MaxBoardNodes) break;
-            var extras = graph.Neighbors(anchor)
-                .Where(n => !nodes.Contains(n) && !shortestSet.Contains(n))
-                .OrderByDescending(n => graph.Articles[n].DegreeIn)
-                .Take(6)
-                .ToList();
-            foreach (var n in extras)
+            if (nodes.Count >= opt.MinBoardNodes) break;
+            foreach (var edge in graph.EdgesFrom(anchor)
+                         .OrderByDescending(e =>
+                             graph.Articles.TryGetValue(e.To, out var a) ? a.Popularity : 0)
+                         .ThenByDescending(e => e.Rarity)
+                         .Take(8))
             {
                 if (nodes.Count >= opt.MaxBoardNodes) break;
-                if (!TryAddNode(graph, nodes, edges, path, n)) continue;
-                traps.Add(n);
-                trapEdges++;
+                if (nodes.Contains(edge.To)) continue;
+                if (!TryAddNode(graph, nodes, edges, edge.To, path, opt, out var addedEdges)) continue;
+                traps.Add(edge.To);
+                trapEdges += addedEdges;
             }
         }
 
-        // Grow toward min board size without creating START→TARGET shortcuts.
-        var growFrom = path.OptimalPath.ToList();
-        var gi = 0;
-        while (nodes.Count < opt.MinBoardNodes && gi < 800)
+        // Fill until min board size — prefer famous entities
+        var filler = graph.Articles.Values
+            .Where(a => !nodes.Contains(a.Id))
+            .Where(a => a.Popularity >= opt.MinFameBoard || a.IsSeed)
+            .OrderByDescending(a => a.Popularity)
+            .ThenBy(_ => rng.Next())
+            .Select(a => a.Id)
+            .ToList();
+        foreach (var id in filler)
         {
-            gi++;
-            var src = growFrom[rng.Next(growFrom.Count)];
-            var nbrs = graph.Neighbors(src).Where(n => !nodes.Contains(n)).ToList();
-            if (nbrs.Count == 0) continue;
-            var pick = nbrs[rng.Next(nbrs.Count)];
-            if (!TryAddNode(graph, nodes, edges, path, pick)) continue;
-            traps.Add(pick);
-            trapEdges++;
-            growFrom.Add(pick);
+            if (nodes.Count >= opt.MinBoardNodes) break;
+            if (nodes.Count >= opt.MaxBoardNodes) break;
+            var bridge = graph.EdgesFrom(id).FirstOrDefault(e => nodes.Contains(e.To));
+            if (bridge is null) continue;
+            if (!TryAddNode(graph, nodes, edges, id, path, opt, out var addedEdges)) continue;
+            traps.Add(id);
+            trapEdges += addedEdges;
         }
 
         return new BuiltBoard(path, nodes, edges, traps, trapEdges);
@@ -91,97 +105,107 @@ internal static class TrapBuilder
 
     private static void ExpandTrap(
         CorpusGraph graph,
-        string trapRoot,
         HashSet<string> nodes,
-        HashSet<(string From, string To)> edges,
+        HashSet<BoardEdge> edges,
         HashSet<string> traps,
-        ref int trapEdges,
+        string root,
         PathCandidate path,
+        Random rng,
         GenerationOptions opt,
-        Random rng)
+        ref int trapEdges)
     {
-        var queue = new Queue<(string Id, int Depth)>();
-        queue.Enqueue((trapRoot, 0));
-
-        while (queue.Count > 0 && nodes.Count < opt.MaxBoardNodes)
+        if (opt.TrapDepth <= 0) return;
+        var frontier = new List<string> { root };
+        for (var d = 0; d < opt.TrapDepth; d++)
         {
-            var (id, depth) = queue.Dequeue();
-            if (depth >= opt.TrapDepth) continue;
-
-            var next = graph.Neighbors(id)
-                .Where(n => !nodes.Contains(n))
-                .OrderByDescending(n => graph.Articles[n].DegreeIn)
-                .Take(4)
-                .OrderBy(_ => rng.Next())
-                .Take(2)
-                .ToList();
-
-            foreach (var n in next)
+            var next = new List<string>();
+            foreach (var u in frontier)
             {
-                if (nodes.Count >= opt.MaxBoardNodes) break;
-                if (!TryAddNode(graph, nodes, edges, path, n)) continue;
-                traps.Add(n);
-                trapEdges++;
-                queue.Enqueue((n, depth + 1));
+                foreach (var edge in graph.EdgesFrom(u)
+                             .OrderByDescending(e =>
+                                 graph.Articles.TryGetValue(e.To, out var a) ? a.Popularity : 0)
+                             .ThenByDescending(e => e.Rarity)
+                             .Take(4))
+                {
+                    if (nodes.Contains(edge.To)) continue;
+                    if (!graph.Articles.TryGetValue(edge.To, out var cand)) continue;
+                    if (cand.Popularity < opt.MinFameBoard && !cand.IsSeed) continue;
+                    if (!TryAddNode(graph, nodes, edges, edge.To, path, opt, out var added)) continue;
+                    traps.Add(edge.To);
+                    trapEdges += added;
+                    next.Add(edge.To);
+                    if (nodes.Count >= 40) return;
+                }
             }
+
+            frontier = next.OrderBy(_ => rng.Next()).Take(6).ToList();
+            if (frontier.Count == 0) break;
         }
     }
 
-    /// <summary>
-    /// Add a node plus all induced corpus edges to the current board, but only if
-    /// the shortest START→TARGET length stays equal to the sampled optimal length.
-    /// </summary>
     private static bool TryAddNode(
         CorpusGraph graph,
         HashSet<string> nodes,
-        HashSet<(string From, string To)> edges,
+        HashSet<BoardEdge> edges,
+        string newId,
         PathCandidate path,
-        string candidate)
+        GenerationOptions opt,
+        out int addedEdges)
     {
-        if (nodes.Contains(candidate)) return false;
-
-        var proposedEdges = new List<(string From, string To)>();
-        foreach (var from in nodes)
+        addedEdges = 0;
+        if (!graph.Articles.TryGetValue(newId, out var art)
+            || !TitleQuality.HasPlayableTitle(art.Title, newId))
         {
-            foreach (var to in graph.Neighbors(from))
-            {
-                if (to == candidate) proposedEdges.Add((from, to));
-            }
+            return false;
         }
 
-        foreach (var to in graph.Neighbors(candidate))
+        var existingTitles = nodes
+            .Select(id => graph.Articles.TryGetValue(id, out var a) ? a.Title : null)
+            .Where(t => t is not null)
+            .Cast<string>();
+        if (TitleQuality.ConflictsWithBoard(art.Title, existingTitles, maxPerFamily: 2))
         {
-            if (nodes.Contains(to)) proposedEdges.Add((candidate, to));
+            return false;
         }
 
-        // Tentatively apply, then verify shortest path length.
-        nodes.Add(candidate);
-        foreach (var e in proposedEdges) edges.Add(e);
+        var snapshotNodes = nodes.ToHashSet(StringComparer.Ordinal);
+        var snapshotEdges = edges.ToHashSet(BoardEdgeComparer.Instance);
 
-        var len = ShortestOnBoard(edges, path.StartId, path.TargetId);
-        if (len == path.OptimalLength) return true;
+        nodes.Add(newId);
+        foreach (var edge in graph.EdgesFrom(newId))
+        {
+            if (!nodes.Contains(edge.To)) continue;
+            edges.Add(ToBoardEdge(edge));
+            addedEdges++;
+        }
 
-        // Rollback.
-        nodes.Remove(candidate);
-        foreach (var e in proposedEdges) edges.Remove(e);
-        return false;
+        var length = ShortestOnBoard(nodes, edges, path.StartId, path.TargetId);
+        if (length is null || length < path.OptimalLength)
+        {
+            nodes.Clear();
+            foreach (var n in snapshotNodes) nodes.Add(n);
+            edges.Clear();
+            foreach (var e in snapshotEdges) edges.Add(e);
+            addedEdges = 0;
+            return false;
+        }
+
+        return true;
     }
 
     private static int? ShortestOnBoard(
-        HashSet<(string From, string To)> edges,
+        HashSet<string> nodes,
+        HashSet<BoardEdge> edges,
         string start,
         string target)
     {
         var adj = new Dictionary<string, List<string>>(StringComparer.Ordinal);
-        foreach (var (from, to) in edges)
+        foreach (var e in edges)
         {
-            if (!adj.TryGetValue(from, out var list))
-            {
-                list = [];
-                adj[from] = list;
-            }
-
-            list.Add(to);
+            if (!adj.TryGetValue(e.From, out var fl)) { fl = []; adj[e.From] = fl; }
+            if (!adj.TryGetValue(e.To, out var tl)) { tl = []; adj[e.To] = tl; }
+            fl.Add(e.To);
+            tl.Add(e.From);
         }
 
         var dist = new Dictionary<string, int>(StringComparer.Ordinal) { [start] = 0 };
@@ -194,7 +218,7 @@ internal static class TrapBuilder
             if (!adj.TryGetValue(u, out var outs)) continue;
             foreach (var v in outs)
             {
-                if (dist.ContainsKey(v)) continue;
+                if (!nodes.Contains(v) || dist.ContainsKey(v)) continue;
                 dist[v] = dist[u] + 1;
                 q.Enqueue(v);
             }
@@ -202,4 +226,22 @@ internal static class TrapBuilder
 
         return null;
     }
+
+    private static BoardEdge ToBoardEdge(CorpusEdge e) =>
+        new(e.From, e.To, e.GroupId, e.GroupLabel, e.Rarity);
+}
+
+internal sealed class BoardEdgeComparer : IEqualityComparer<BoardEdge>
+{
+    public static readonly BoardEdgeComparer Instance = new();
+
+    public bool Equals(BoardEdge? x, BoardEdge? y)
+    {
+        if (x is null || y is null) return false;
+        return GraphAlgorithms.UndirectedKey(x.From, x.To)
+            == GraphAlgorithms.UndirectedKey(y.From, y.To);
+    }
+
+    public int GetHashCode(BoardEdge obj) =>
+        StringComparer.Ordinal.GetHashCode(GraphAlgorithms.UndirectedKey(obj.From, obj.To));
 }

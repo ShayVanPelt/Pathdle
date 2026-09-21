@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties, PointerEvent as ReactPointerEvent } from "react";
 import type { Edge, PuzzleNode } from "@/lib/api/types";
 import { SCORING } from "@/lib/api/types";
-import { chartedNodeIds } from "@/lib/game/charted";
+import { chartedNodeIds, undirectedEdgeKey } from "@/lib/game/charted";
 import {
   nodeBody,
   nodeRects,
@@ -18,8 +18,8 @@ import { FieldAtmosphere } from "./FieldAtmosphere";
 import { GraphEdges } from "./GraphEdges";
 import { GraphNode, resolveExploration } from "./GraphNode";
 
-/** Display world — large enough for ~60 pills with gaps in a filled disk. */
-const WORLD = 1400;
+/** Display world — filled constellation of ~30–40 pills with breathing room. */
+const WORLD = 1480;
 const PAD = 88;
 const DRAG_THRESHOLD_PX = 10;
 const MIN_K = 0.5;
@@ -62,6 +62,7 @@ type Props = {
   selectedId: string | null;
   menuNodeId: string | null;
   playLocked?: boolean;
+  hintsRemaining?: number;
   onSelectedChange: (id: string | null) => void;
   onAttempt: (fromId: string, toId: string) => Promise<boolean>;
   onNodeClick: (nodeId: string) => void;
@@ -105,6 +106,7 @@ export function GameBoard({
   selectedId,
   menuNodeId,
   playLocked = false,
+  hintsRemaining = 3,
   onSelectedChange,
   onAttempt,
   onNodeClick,
@@ -182,8 +184,8 @@ export function GameBoard({
   );
 
   const positions = useMemo(() => {
-    return spreadDisplayPositions(nodes, apiPositions, startId, WORLD);
-  }, [nodes, apiPositions, startId]);
+    return spreadDisplayPositions(nodes, apiPositions, startId, targetId, WORLD);
+  }, [nodes, apiPositions, startId, targetId]);
 
   const obstacles = useMemo(
     () => nodeRects(nodes, positions),
@@ -191,12 +193,15 @@ export function GameBoard({
   );
 
   const discoveredKeys = useMemo(
-    () => new Set(discoveredEdges.map((e) => `${e.from}->${e.to}`)),
+    () => new Set(discoveredEdges.map((e) => undirectedEdgeKey(e.from, e.to))),
     [discoveredEdges],
   );
 
   const visibleHints = useMemo(
-    () => hintEdges.filter((e) => !discoveredKeys.has(`${e.from}->${e.to}`)),
+    () =>
+      hintEdges.filter(
+        (e) => !discoveredKeys.has(undirectedEdgeKey(e.from, e.to)),
+      ),
     [hintEdges, discoveredKeys],
   );
 
@@ -602,16 +607,20 @@ export function GameBoard({
     const list: ChartNeighbor[] = [];
     const seen = new Set<string>();
     for (const e of discoveredEdges) {
-      if (e.from !== menuNodeId || seen.has(e.to)) continue;
-      seen.add(e.to);
-      const node = nodes.find((n) => n.id === e.to);
-      list.push({ id: e.to, title: node?.title ?? e.to, kind: "path" });
+      const other =
+        e.from === menuNodeId ? e.to : e.to === menuNodeId ? e.from : null;
+      if (!other || seen.has(other)) continue;
+      seen.add(other);
+      const node = nodes.find((n) => n.id === other);
+      list.push({ id: other, title: node?.title ?? other, kind: "path" });
     }
     for (const e of visibleHints) {
-      if (e.from !== menuNodeId || seen.has(e.to)) continue;
-      seen.add(e.to);
-      const node = nodes.find((n) => n.id === e.to);
-      list.push({ id: e.to, title: node?.title ?? e.to, kind: "hint" });
+      const other =
+        e.from === menuNodeId ? e.to : e.to === menuNodeId ? e.from : null;
+      if (!other || seen.has(other)) continue;
+      seen.add(other);
+      const node = nodes.find((n) => n.id === other);
+      list.push({ id: other, title: node?.title ?? other, kind: "hint" });
     }
     return list;
   }, [menuNodeId, discoveredEdges, visibleHints, nodes]);
@@ -651,6 +660,31 @@ export function GameBoard({
               <feMergeNode in="SourceGraphic" />
             </feMerge>
           </filter>
+          <filter id="start-lamp" x="-90%" y="-90%" width="280%" height="280%">
+            <feGaussianBlur stdDeviation="3.6" result="blur" />
+            <feMerge>
+              <feMergeNode in="blur" />
+              <feMergeNode in="blur" />
+              <feMergeNode in="SourceGraphic" />
+            </feMerge>
+          </filter>
+          <filter id="target-lamp" x="-90%" y="-90%" width="280%" height="280%">
+            <feGaussianBlur stdDeviation="3.6" result="blur" />
+            <feMerge>
+              <feMergeNode in="blur" />
+              <feMergeNode in="blur" />
+              <feMergeNode in="SourceGraphic" />
+            </feMerge>
+          </filter>
+          <filter id="plaque-glow" x="-40%" y="-60%" width="180%" height="220%">
+            <feDropShadow
+              dx="0"
+              dy="1"
+              stdDeviation="1.6"
+              floodColor="oklch(0.05 0.02 275)"
+              floodOpacity="0.7"
+            />
+          </filter>
         </defs>
 
         <rect
@@ -675,6 +709,8 @@ export function GameBoard({
           />
 
           <GraphEdges
+            layer="wires"
+            nodes={nodes}
             positions={positions}
             obstacles={obstacles}
             discoveredEdges={discoveredEdges}
@@ -732,15 +768,31 @@ export function GameBoard({
               </g>
             );
           })}
+
+          <GraphEdges
+            layer="plaques"
+            nodes={nodes}
+            positions={positions}
+            obstacles={obstacles}
+            discoveredEdges={discoveredEdges}
+            visibleHints={visibleHints}
+            pathEdgeKeys={traversedEdgeKeys}
+            ghost={null}
+            dragLine={null}
+            focusId={selectedId}
+            focusNeighborIds={focusNeighborIds}
+          />
         </g>
       </svg>
 
       {menuNode && (compact || notePos) && (
         <ChartNote
           title={menuNode.title}
+          description={menuNode.description}
           neighbors={neighbors}
           canExplore={chartedIds.has(menuNode.id)}
           revealed={revealedSet.has(menuNode.id)}
+          hintsRemaining={hintsRemaining}
           playLocked={playLocked}
           variant={compact ? "sheet" : "popover"}
           style={compact ? undefined : notePos}

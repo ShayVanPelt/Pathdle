@@ -1,6 +1,6 @@
 # Pathdle — Agent Guide
 
-Daily Wikipedia graph puzzle. Players discover a hidden directed graph from START to TARGET.
+Daily shortest-path puzzle on a **group graph**: nodes share hidden properties/groups. Players discover undirected connections from START to TARGET with the lowest score.
 
 ## Monorepo
 
@@ -8,7 +8,7 @@ Daily Wikipedia graph puzzle. Players discover a hidden directed graph from STAR
 |------|------|
 | `apps/web` | Next.js game UI (Vercel) |
 | `apps/api` | ASP.NET Core play API (Cloud Run) |
-| `apps/generator` | Daily puzzle / ingest job (Cloud Run Job) |
+| `apps/generator` | Wikidata group corpus + daily puzzle job (Cloud Run Job) |
 | `infra/sql` | Postgres migrations + seeds |
 | `docs/architecture.md` | Full architecture |
 
@@ -26,10 +26,10 @@ Read the package-specific `AGENTS.md` when working in that app.
 
 Points are a cost (lower is better):
 
-- Successful link drag: **+100** (permanent; branching from any charted node is allowed)
-- Failed link drag: **+100** (miss animation, no line)
-- Reveal outbound from a node (click → chart note): **+75** (dashed hints only — not permanent path links; confirming a link from that node clears its remaining outbound hints)
-- No link removal / undo — score only increases for new actions
+- Successful link drag: **+100** (permanent; relationship label shown; branching allowed)
+- Failed link drag: **+200** (miss animation, no line)
+- Reveal connections from a node: **+75**, max **3** paid hints per puzzle (dashed neighbor lines, no labels; free re-show; confirm clears hints from that node)
+- No link removal / undo
 
 See `docs/game-rules.md`, `Pathdle.Application.ScoringRules`, and web `SCORING`.
 
@@ -37,7 +37,7 @@ See `docs/game-rules.md`, `Pathdle.Application.ScoringRules`, and web `SCORING`.
 
 See `.impeccable.md` and `apps/web/AGENTS.md` before UI work.
 
-**Visual product:** full-bleed night-void constellation; top instrument HUD (brand | path rail | score); graph is the hero. Labels inside node pills; circular display ring.
+**Visual product:** full-bleed night-void constellation; top instrument HUD (brand | path rail | score / hints); graph is the hero. Labels inside node pills; relationship plaques on confirmed edges; filled constellation (START/TARGET opposite, interior occupied).
 
 **Anti-slop (always):** no Inter/Roboto/Arial as brand fonts; no purple-on-white / indigo gradients; no cyan-glow dark “AI dashboard”; no cream+terracotta newspaper look; no card soup; no emoji decoration; no gradient headline text; no bulky side panels trapping the board.
 

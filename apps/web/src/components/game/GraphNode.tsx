@@ -71,6 +71,10 @@ export function GraphNode({
   return (
     <g
       data-node-id={node.id}
+      role="button"
+      aria-label={
+        isStart ? `START ${node.title}` : isTarget ? `TARGET ${node.title}` : node.title
+      }
       className={`pathdle-node-layer${dimmed ? " is-dimmed" : ""}`}
       onPointerDown={onPointerDown}
       onPointerEnter={onPointerEnter}
@@ -88,7 +92,7 @@ export function GraphNode({
       />
 
       <g
-        className={`pathdle-node-visual${active ? " is-hover" : ""}${onPath ? " is-on-path" : ""}${isOption ? " is-option" : ""}`}
+        className={`pathdle-node-visual${active ? " is-hover" : ""}${isStart ? " is-start" : isTarget ? " is-target" : onPath ? " is-on-path" : ""}${isOption ? " is-option" : ""}`}
       >
         {highlighted && (
           <rect
@@ -103,12 +107,35 @@ export function GraphNode({
           />
         )}
 
+        {(isStart || isTarget) && (
+          <>
+            <path
+              d={labelChipPath(body.w + 28, body.h + 26, body.r + 12)}
+              fill="none"
+              className={`pathdle-pole-orbit${isStart ? " is-start" : " is-target"}`}
+              pointerEvents="none"
+            />
+            <path
+              d={labelChipPath(body.w + 14, body.h + 14, body.r + 7)}
+              fill="none"
+              className={`pathdle-pole-ring${isStart ? " is-start" : " is-target"}`}
+              pointerEvents="none"
+            />
+          </>
+        )}
+
         <ellipse
-          rx={body.w * 0.42}
-          ry={body.h * 0.55}
+          rx={body.w * (isStart || isTarget ? 0.58 : 0.42)}
+          ry={body.h * (isStart || isTarget ? 0.72 : 0.55)}
           fill={accent}
-          opacity={active ? 0.28 : onPath ? 0.2 : 0.1}
-          className={isTarget ? "pathdle-node-target-pulse" : "pathdle-node-halo"}
+          opacity={active ? 0.34 : isStart || isTarget ? 0.32 : onPath ? 0.2 : 0.1}
+          className={
+            isTarget
+              ? "pathdle-node-target-pulse"
+              : isStart
+                ? "pathdle-node-start-pulse"
+                : "pathdle-node-halo"
+          }
           pointerEvents="none"
         />
 
@@ -129,31 +156,39 @@ export function GraphNode({
 
         <path
           d={labelChipPath(body.w, body.h, body.r)}
-          className={`pathdle-node-body${onPath || isStart || isTarget ? " is-path" : isBranch ? " is-branch" : ""}${selected ? " is-selected" : ""}`}
+          className={`pathdle-node-body${isStart ? " is-start" : isTarget ? " is-target" : onPath ? " is-path" : isBranch ? " is-branch" : ""}${selected ? " is-selected" : ""}`}
           stroke={
             selected
               ? "var(--focus)"
-              : active || revealed
-                ? accent
-                : isStart
-                  ? "var(--accent)"
-                  : isTarget
-                    ? "var(--target)"
+              : isStart
+                ? "var(--accent)"
+                : isTarget
+                  ? "var(--target)"
+                  : active || revealed
+                    ? accent
                     : onPath
                       ? "var(--accent)"
                       : isBranch
                         ? "oklch(0.82 0.06 80 / 0.75)"
                         : "oklch(0.7 0.04 250 / 0.45)"
           }
-          strokeWidth={onPath || selected || isStart || isTarget ? 2.6 : active ? 2.1 : 1.6}
-          filter={isOption ? undefined : "url(#node-glow)"}
+          strokeWidth={isStart || isTarget ? 3.1 : onPath || selected ? 2.6 : active ? 2.1 : 1.6}
+          filter={
+            isStart
+              ? "url(#start-lamp)"
+              : isTarget
+                ? "url(#target-lamp)"
+                : isOption
+                  ? undefined
+                  : "url(#node-glow)"
+          }
         />
 
         {body.hasTag && (
           <text
-            y={-body.h / 2 + 18}
+            y={-body.h / 2 + 22}
             textAnchor="middle"
-            className="pathdle-node-tag"
+            className={`pathdle-node-tag${isStart ? " is-start" : " is-target"}`}
             fill={isStart ? "var(--accent)" : "var(--target)"}
           >
             {isStart ? "START" : "TARGET"}

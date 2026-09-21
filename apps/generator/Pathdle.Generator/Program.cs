@@ -3,7 +3,7 @@ using Neo4j.Driver;
 using Pathdle.Generator;
 using Pathdle.Generator.Corpus;
 using Pathdle.Generator.Generation;
-using Pathdle.Generator.Publish;
+using Pathdle.Generator.Persistence;
 
 var config = EnvBootstrap.Load();
 if (args.Length == 0)
@@ -19,7 +19,6 @@ try
     {
         "ingest-corpus" => await IngestAsync(config, args.Skip(1).ToArray()),
         "generate-daily" => await GenerateAsync(config, args.Skip(1).ToArray()),
-        "diagnose-links" => await DiagnoseLinksAsync(args.Skip(1).ToArray()),
         "help" or "--help" or "-h" => PrintHelp(),
         _ => Unknown(command)
     };
@@ -34,14 +33,12 @@ static int PrintHelp()
 {
     Console.WriteLine(
         """
-        Pathdle.Generator
+        Pathdle.Generator (group-graph / Wikidata)
 
-          ingest-corpus [--max-articles=8000] [--seeds=path]
-                        [--scout-pages=6] [--induce-pages=0]
+          ingest-corpus [--max-entities=2000] [--seeds=path] [--demo]
           generate-daily [--date=YYYY-MM-DD] [--today] [--dry-run]
-          diagnose-links [--title=Albert_Einstein] [--expect=Physics]
 
-        induce-pages=0 means unlimited MediaWiki pagination (keep-filtered early-stop still applies).
+        --demo writes the hand-authored Dell→Vitamin C group graph to Neo4j (no Wikidata).
 
         Env (root .env): Neo4j__*, ConnectionStrings__Postgres, Pathdle__CorpusVersion
         """);
@@ -57,30 +54,30 @@ static int Unknown(string command)
 
 static async Task<int> IngestAsync(IConfiguration config, string[] args)
 {
-    var maxArticles = GetIntArg(args, "--max-articles", 8000);
-    var scoutPages = GetIntArg(args, "--scout-pages", 6);
-    var inducePages = GetIntArg(args, "--induce-pages", 0);
+    var maxEntities = GetIntArg(args, "--max-entities", GetIntArg(args, "--max-articles", 2000));
+    var demo = args.Any(a => a is "--demo");
     var seedsArg = GetStringArg(args, "--seeds");
-    var corpusVersion = config["Pathdle:CorpusVersion"] ?? "wiki-crawl-mvp-v1";
+    var corpusVersion = config["Pathdle:CorpusVersion"] ?? "wikidata-groups-v1";
     var root = EnvBootstrap.FindRepoRoot();
     var seedsPath = seedsArg
-        ?? Path.Combine(root, "apps", "generator", "data", "seed_articles.txt");
+        ?? Path.Combine(root, "apps", "generator", "data", "seed_entities.txt");
 
-    if (!File.Exists(seedsPath))
+    if (!demo && !File.Exists(seedsPath))
     {
-        throw new FileNotFoundException("Seed articles file not found.", seedsPath);
+        throw new FileNotFoundException(
+            "Seed entities file not found. Pass --demo or create seed_entities.txt with QIDs.",
+            seedsPath);
     }
 
     await using var store = CreateNeo4j(config);
-    using var wiki = new MediaWikiClient();
-    var ingestor = new CorpusIngestor(wiki, store);
+    using var wikidata = new WikidataClient();
+    var ingestor = new CorpusIngestor(wikidata, store);
     await ingestor.IngestAsync(
         seedsPath,
         corpusVersion,
-        maxArticles,
+        maxEntities,
         CancellationToken.None,
-        scoutPages,
-        inducePages);
+        demo);
     return 0;
 }
 
@@ -96,7 +93,7 @@ static async Task<int> GenerateAsync(IConfiguration config, string[] args)
             ? DateOnly.FromDateTime(DateTime.UtcNow)
             : DateOnly.FromDateTime(DateTime.UtcNow.AddDays(1));
 
-    var corpusVersion = config["Pathdle:CorpusVersion"] ?? "wiki-crawl-mvp-v1";
+    var corpusVersion = config["Pathdle:CorpusVersion"] ?? "wikidata-groups-v1";
     var pg = config.GetConnectionString("Postgres")
         ?? throw new InvalidOperationException("ConnectionStrings:Postgres is required.");
 
@@ -121,16 +118,38 @@ static async Task<int> GenerateAsync(IConfiguration config, string[] args)
     var meta = await store.GetLatestMetaAsync(CancellationToken.None);
     if (meta is null)
     {
-        throw new InvalidOperationException("No CorpusMeta in Neo4j. Run ingest-corpus first.");
+        throw new InvalidOperationException(
+            "No CorpusMeta in Neo4j. Run ingest-corpus --demo (or full Wikidata ingest) first.");
     }
 
     Console.WriteLine(
-        $"Corpus {meta.Value.Version}: {meta.Value.Articles} articles, {meta.Value.Edges} edges");
+        $"Corpus {meta.Value.Version}: {meta.Value.Articles} entities, {meta.Value.Edges} edges");
     Console.WriteLine(
         $"Generating for {puzzleDate:yyyy-MM-dd} (corpusVersion={corpusVersion}, seed={runNonce})…");
 
     var graph = await store.LoadGraphAsync(CancellationToken.None);
-    var generated = PuzzleGenerator.Generate(graph, puzzleDate, corpusVersion, runNonce);
+    // Demo corpora are tiny; Wikidata co-membership graphs need sparsified defaults.
+    var options = graph.Articles.Count < 80
+        ? new GenerationOptions
+        {
+            MinLength = 3,
+            MaxLength = 5,
+            MinBoardNodes = 24,
+            MaxBoardNodes = 40,
+            MinScore = 15,
+            MaxScore = 98,
+            MaxAltShortest = 24,
+            MaxAttempts = 400,
+            MaxDegreeStart = 32,
+            MaxDegreeTarget = 32,
+            SparseMaxDegree = 12,
+            MinFameStart = 0,
+            MinFameTarget = 0,
+            MinFameBoard = 0,
+        }
+        : new GenerationOptions();
+
+    var generated = PuzzleGenerator.Generate(graph, puzzleDate, corpusVersion, runNonce, options);
 
     Console.WriteLine(
         $"Board: {generated.Puzzle.StartArticleId} → {generated.Puzzle.TargetArticleId}, "
@@ -143,31 +162,8 @@ static async Task<int> GenerateAsync(IConfiguration config, string[] args)
         return 0;
     }
 
-    var published = await PuzzlePublisher.TryPublishAsync(pg, generated.Puzzle, CancellationToken.None);
-    return published ? 0 : 0; // idempotent skip is success
-}
-
-static async Task<int> DiagnoseLinksAsync(string[] args)
-{
-    var title = GetStringArg(args, "--title") ?? "Albert_Einstein";
-    var expect = GetStringArg(args, "--expect") ?? "Physics";
-    using var wiki = new MediaWikiClient();
-
-    Console.WriteLine($"Fetching raw links for {title} (5 pages)…");
-    var raw = await wiki.GetMainNamespaceLinksAsync(title, 5, CancellationToken.None);
-    Console.WriteLine($"  raw count={raw.Count}, has {expect}={raw.Contains(expect)}");
-
-    var keep = new HashSet<string>(StringComparer.Ordinal) { title, expect, "Mathematics", "Nintendo" };
-    Console.WriteLine($"Fetching keep-filtered links for {title}…");
-    var filtered = await wiki.GetMainNamespaceLinksAsync(title, 5, CancellationToken.None, keep);
-    Console.WriteLine($"  filtered count={filtered.Count}: {string.Join(", ", filtered)}");
-
-    Console.WriteLine("Batch fetch (same keep)…");
-    var batch = await wiki.GetOutboundLinksBatchAsync([title], CancellationToken.None, 5, keep);
-    Console.WriteLine(
-        $"  batch[{title}] count={batch[title].Count}: {string.Join(", ", batch[title])}");
-
-    return raw.Contains(expect) ? 0 : 2;
+    await PuzzlePublisher.TryPublishAsync(pg, generated.Puzzle, CancellationToken.None);
+    return 0;
 }
 
 static Neo4jCorpusStore CreateNeo4j(IConfiguration config)

@@ -1,6 +1,6 @@
 # Pathdle
 
-Daily Wikipedia graph puzzle. Discover a hidden path from START to TARGET on a full-bleed night-void constellation (top instrument HUD; graph is the hero).
+Daily shortest-path puzzle on a group graph. Discover hidden relationships between nodes from START to TARGET on a full-bleed night-void constellation (top instrument HUD; graph is the hero). Lower score wins.
 
 ## Status
 
@@ -69,10 +69,10 @@ dotnet run --project apps/api/Pathdle.Api --launch-profile http
 | `POST` | `/api/games` | Start / resume |
 | `GET` | `/api/games/{id}` | Resume |
 | `POST` | `/api/games/{id}/attempts` | `{ "fromId", "toId" }` |
-| `POST` | `/api/games/{id}/reveals` | `{ "articleId" }` outbound hints |
+| `POST` | `/api/games/{id}/reveals` | `{ "articleId" }` neighbor hints (max 3 paid) |
 | `POST` | `/api/games/{id}/complete` | Reveals optimal path |
 
-Default seed puzzle (if no generated row for today): **Albert Einstein → Nintendo**, optimal length 3 via Physics → Mathematics.
+Default seed puzzle (if no generated row for today): **Dell → Vitamin C**, optimal length 3 via Apple → Orange (group labels on confirm).
 
 ### 3. Frontend
 
@@ -89,17 +89,17 @@ Open `http://localhost:3000`. Uses monorepo root `.env` for `NEXT_PUBLIC_*` (see
 Neo4j must be up. Copy root `.env.example` → `.env` and set `Neo4j__*` + `ConnectionStrings__Postgres` if needed.
 
 ```bash
-# Rare: rebuild Wikipedia subset in Neo4j (local MVP often uses --max-articles=1200)
-dotnet run --project apps/generator/Pathdle.Generator -- ingest-corpus --max-articles=1200
+# Offline demo group graph (no Wikidata)
+dotnet run --project apps/generator/Pathdle.Generator -- ingest-corpus --demo
+
+# Wikidata ingest (bounded)
+dotnet run --project apps/generator/Pathdle.Generator -- ingest-corpus --max-entities=2000
 
 # Publish tomorrow's puzzle (idempotent — skips if date exists)
 dotnet run --project apps/generator/Pathdle.Generator -- generate-daily
 
 # Local testing: today's puzzle, no Postgres write
 dotnet run --project apps/generator/Pathdle.Generator -- generate-daily --today --dry-run
-
-# Sanity-check MediaWiki link fetch (e.g. Einstein → Physics)
-dotnet run --project apps/generator/Pathdle.Generator -- diagnose-links --title=Albert_Einstein --expect=Physics
 ```
 
 Full algorithm: [docs/generator.md](docs/generator.md).

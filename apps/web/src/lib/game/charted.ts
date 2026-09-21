@@ -1,7 +1,7 @@
 import type { Edge } from "@/lib/api/types";
 
 /**
- * Nodes reachable from START through confirmed directed links. Reveal hints do
+ * Nodes reachable from START through confirmed undirected links. Reveal hints do
  * not count: a player must successfully chart the link first.
  */
 export function chartedNodeIds(startId: string, discoveredEdges: Edge[]) {
@@ -11,11 +11,20 @@ export function chartedNodeIds(startId: string, discoveredEdges: Edge[]) {
   while (changed) {
     changed = false;
     for (const edge of discoveredEdges) {
-      if (!charted.has(edge.from) || charted.has(edge.to)) continue;
-      charted.add(edge.to);
-      changed = true;
+      if (charted.has(edge.from) && !charted.has(edge.to)) {
+        charted.add(edge.to);
+        changed = true;
+      } else if (charted.has(edge.to) && !charted.has(edge.from)) {
+        charted.add(edge.from);
+        changed = true;
+      }
     }
   }
 
   return charted;
+}
+
+/** Canonical undirected edge key (matches API DailyPuzzle.UndirectedEdgeKey). */
+export function undirectedEdgeKey(a: string, b: string) {
+  return a <= b ? `${a}|${b}` : `${b}|${a}`;
 }
